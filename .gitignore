@@ -1,0 +1,9 @@
+# 凭据（每台机器独立，不应提交）
+config/credential.ps1
+
+# 执行日志
+logs/
+
+# 操作系统文件
+Thumbs.db
+.DS_Store
