@@ -1,6 +1,10 @@
 # 执行日志
 logs/
 
+# IDE / 编辑器
+.idea/
+.vscode/
+
 # 操作系统文件
 Thumbs.db
 .DS_Store

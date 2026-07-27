@@ -456,7 +456,8 @@ window.__bskObserver.observe(document.body, {childList: true, subtree: true});
         Write-Log "耗时: ${totalDuration}s (${totalMinutes}min)"
         Write-Log "结果: $resultFile"
 
-        $results | Select-Object ReportName, Status, Duration, Error |
+        $results | Where-Object { $_.ReportName } |
+            Select-Object ReportName, Status, Duration, Error |
             Export-Csv -Path $resultFile -NoTypeInformation -Encoding UTF8
 
     } catch {
