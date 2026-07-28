@@ -293,13 +293,13 @@ function Invoke-WarmupPipeline {
         Write-Log "[诊断] 已清理残留锁文件"
     }
 
-    # 启动 daemon（最多等 10s，超时则强杀重来）
-    $dr = Invoke-BskWithTimeout -ArgsList @("daemon","start") -TimeoutMs 10000
+    # 启动 daemon（-NoOutput：daemon fork 子进程会继承管道导致 WaitForExit 死锁）
+    $dr = Invoke-BskWithTimeout -ArgsList @("daemon","start") -TimeoutMs 10000 -NoOutput
     if ($dr.TimedOut) {
         Get-Process -Name "bsk" -ErrorAction SilentlyContinue |
             ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
         Remove-Item $lockFile -Force -ErrorAction SilentlyContinue
-        Invoke-BskWithTimeout -ArgsList @("daemon","start") -TimeoutMs 10000 | Out-Null
+        Invoke-BskWithTimeout -ArgsList @("daemon","start") -TimeoutMs 10000 -NoOutput | Out-Null
     }
     Start-Sleep -Seconds 3
     Write-Log "daemon 已启动"

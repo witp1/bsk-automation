@@ -8,7 +8,8 @@
 function Invoke-BskWithTimeout {
     param(
         [Parameter(Mandatory)][string[]]$ArgsList,
-        [int]$TimeoutMs = 10000
+        [int]$TimeoutMs = 10000,
+        [switch]$NoOutput = $false   # daemon start 等 fork 子进程的场景，不重定向输出
     )
     $cmdStr = ($ArgsList -join " ")
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
@@ -17,8 +18,8 @@ function Invoke-BskWithTimeout {
     $proc.StartInfo.FileName               = $BskPath
     $proc.StartInfo.Arguments              = $cmdStr
     $proc.StartInfo.UseShellExecute        = $false
-    $proc.StartInfo.RedirectStandardOutput = $true
-    $proc.StartInfo.RedirectStandardError  = $true
+    $proc.StartInfo.RedirectStandardOutput = -not $NoOutput
+    $proc.StartInfo.RedirectStandardError  = -not $NoOutput
     $proc.StartInfo.CreateNoWindow         = $true
 
     $timedOut = $false
@@ -37,10 +38,9 @@ function Invoke-BskWithTimeout {
         if ($timedOut) {
             Write-Log "[bsk] 超时! bsk $cmdStr (PID: $procId, 耗时: $($sw.ElapsedMilliseconds)ms)" -Level Warn
             try { $proc.Kill() } catch { Write-Log "[bsk] Kill 失败: $_" -Level Error }
-            # 强杀后管道状态不可预测，跳过 ReadToEnd，避免死锁
             $stdout = ""
             $stderr = ""
-        } else {
+        } elseif (-not $NoOutput) {
             $stdout = $proc.StandardOutput.ReadToEnd()
             $stderr = $proc.StandardError.ReadToEnd()
         }
