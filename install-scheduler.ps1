@@ -41,18 +41,20 @@ $warmupTaskName = "bsk-warmup"
 
 if ($WarmupSchedule.Enabled) {
     $time = $WarmupSchedule.Hour.ToString('D2') + ":" + $WarmupSchedule.Minute.ToString('D2')
-    $cmd = "`"$BskExe`" powershell -ExecutionPolicy Bypass -File `"$RunPs1`" -Env $($WarmupSchedule.Env)"
-    if ($WarmupSchedule.ReportFilter) { $cmd += " -ReportFilter `"$($WarmupSchedule.ReportFilter)`"" }
+
+    # 构造命令参数
+    $taskArgs = "-ExecutionPolicy Bypass -File `"$RunPs1`" -Env $($WarmupSchedule.Env)"
+    if ($WarmupSchedule.ReportFilter) { $taskArgs += " -ReportFilter `"$($WarmupSchedule.ReportFilter)`"" }
 
     # 先删旧任务
     schtasks /delete /tn $warmupTaskName /f 2>&1 | Out-Null
 
-    # 用 schtasks 创建（支持 /ri 重复间隔，兼容所有 PowerShell 版本）
+    # 用 schtasks 创建（支持 /ri 重复间隔）
     if ($WarmupSchedule.RepeatEvery -gt 0) {
         $intervalMin = [int]($WarmupSchedule.RepeatEvery * 60)
-        schtasks /create /tn $warmupTaskName /tr "powershell -ExecutionPolicy Bypass -File `"$RunPs1`" -Env $($WarmupSchedule.Env)" /sc daily /st $time /ri $intervalMin /du 23:59 /ru $env:USERNAME /rl highest /f 2>&1 | Out-Null
+        schtasks /create /tn $warmupTaskName /tr "powershell $taskArgs" /sc daily /st $time /ri $intervalMin /du 23:59 /ru $env:USERNAME /rl highest /f 2>&1 | Out-Null
     } else {
-        schtasks /create /tn $warmupTaskName /tr "powershell -ExecutionPolicy Bypass -File `"$RunPs1`" -Env $($WarmupSchedule.Env)" /sc daily /st $time /ru $env:USERNAME /rl highest /f 2>&1 | Out-Null
+        schtasks /create /tn $warmupTaskName /tr "powershell $taskArgs" /sc daily /st $time /ru $env:USERNAME /rl highest /f 2>&1 | Out-Null
     }
 
     if ($LASTEXITCODE -eq 0) {
