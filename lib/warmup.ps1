@@ -278,34 +278,31 @@ function Invoke-WarmupPipeline {
     if ($ReportFilter) { Write-Log "过滤: $ReportFilter" }
 
     # ──── 0. 确保 daemon 在运行 ────
-    Write-Log "检查 daemon 状态..."
+    Write-Log "清理残留 daemon 并重启..."
 
-    # 诊断：先列出当前 bsk 进程和锁文件状态
-    $runningBsk = Get-Process -Name "bsk" -ErrorAction SilentlyContinue
-    $lockExists = Test-Path "$env:USERPROFILE\.bsk\daemon.lock"
-    $jsonExists = Test-Path "$env:USERPROFILE\.bsk\daemon.json"
-    Write-Log "[诊断] bsk 进程数: $($runningBsk.Count), daemon.lock: $lockExists, daemon.json: $jsonExists"
+    # 杀掉所有残留 bsk 进程（不限路径，避免僵尸进程持有 named pipe）
+    Get-Process -Name "bsk" -ErrorAction SilentlyContinue |
+        ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+    Write-Log "[诊断] 已杀残留 bsk 进程"
 
-    $sr = Invoke-BskWithTimeout -ArgsList @("status") -TimeoutMs 10000
-
-    if ($sr.Output -notmatch 'daemon running') {
-        if ($sr.TimedOut) { Write-Log "bsk status 超时，daemon 异常，重建" -Level Warn }
-        else              { Write-Log "daemon 未运行，尝试启动..." }
-
-        # 清理残留锁文件 + 杀残留进程
-        $lockFile = "$env:USERPROFILE\.bsk\daemon.lock"
-        if (Test-Path $lockFile) {
-            Remove-Item $lockFile -Force -ErrorAction SilentlyContinue
-            Remove-Item "$env:USERPROFILE\.bsk\daemon.json" -Force -ErrorAction SilentlyContinue
-        }
-        Get-Process -Name "bsk" -ErrorAction SilentlyContinue |
-            Where-Object { $_.Path -eq $BskPath } |
-            ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
-
-        Invoke-BskWithTimeout -ArgsList @("daemon","start") -TimeoutMs 10000 | Out-Null
-        Start-Sleep -Seconds 3
-        Write-Log "daemon 启动完成"
+    # 清理锁文件
+    $lockFile = "$env:USERPROFILE\.bsk\daemon.lock"
+    if (Test-Path $lockFile) {
+        Remove-Item $lockFile -Force -ErrorAction SilentlyContinue
+        Remove-Item "$env:USERPROFILE\.bsk\daemon.json" -Force -ErrorAction SilentlyContinue
+        Write-Log "[诊断] 已清理残留锁文件"
     }
+
+    # 启动 daemon（最多等 10s，超时则强杀重来）
+    $dr = Invoke-BskWithTimeout -ArgsList @("daemon","start") -TimeoutMs 10000
+    if ($dr.TimedOut) {
+        Get-Process -Name "bsk" -ErrorAction SilentlyContinue |
+            ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+        Remove-Item $lockFile -Force -ErrorAction SilentlyContinue
+        Invoke-BskWithTimeout -ArgsList @("daemon","start") -TimeoutMs 10000 | Out-Null
+    }
+    Start-Sleep -Seconds 3
+    Write-Log "daemon 已启动"
 
     # ──── 1. 启动会话 ────
     $sid = Start-BskSession -BrowserInstanceId $BrowserInstanceId

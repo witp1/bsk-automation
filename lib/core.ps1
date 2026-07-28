@@ -37,9 +37,13 @@ function Invoke-BskWithTimeout {
         if ($timedOut) {
             Write-Log "[bsk] 超时! bsk $cmdStr (PID: $procId, 耗时: $($sw.ElapsedMilliseconds)ms)" -Level Warn
             try { $proc.Kill() } catch { Write-Log "[bsk] Kill 失败: $_" -Level Error }
+            # 强杀后管道状态不可预测，跳过 ReadToEnd，避免死锁
+            $stdout = ""
+            $stderr = ""
+        } else {
+            $stdout = $proc.StandardOutput.ReadToEnd()
+            $stderr = $proc.StandardError.ReadToEnd()
         }
-        $stdout = $proc.StandardOutput.ReadToEnd()
-        $stderr = $proc.StandardError.ReadToEnd()
         Write-Log "[bsk] 完成: bsk $cmdStr (PID: $procId, 耗时: $($sw.ElapsedMilliseconds)ms, 超时: $timedOut, 输出: $(($stdout.Length + $stderr.Length)) 字符)" -Level Info
     } catch {
         $sw.Stop()
@@ -126,18 +130,22 @@ function Start-BskSession {
     }
     $output = $sr.Output
 
-    if ($LASTEXITCODE -ne 0 -or -not $output) {
-        Write-Log "bsk 会话启动失败: $output" -Level Error
+    # 用 JSON 解析判断成功（.NET Process 不设 $LASTEXITCODE）
+    if (-not $output) {
+        Write-Log "bsk 会话启动失败: 无输出" -Level Error
         return ""
     }
-
     try {
         $parsed = $output | ConvertFrom-Json
         $sid = $parsed.session_id
+        if (-not $sid) {
+            Write-Log "bsk 会话返回异常: $output" -Level Error
+            return ""
+        }
         Write-Log "会话启动成功, ID: $sid" -Level Success
         return $sid
     } catch {
-        Write-Log "解析 session_id 失败: $output" -Level Error
+        Write-Log "bsk 会话启动失败: $output" -Level Error
         return ""
     }
 }
