@@ -277,6 +277,11 @@ function Invoke-WarmupPipeline {
     if ($ResumeFrom)   { Write-Log "断点恢复: $ResumeFrom" }
     if ($ReportFilter) { Write-Log "过滤: $ReportFilter" }
 
+    # ──── 0. 重启 daemon，确保浏览器连接新鲜 ────
+    Write-Log "刷新 daemon 连接..."
+    & $BskPath "daemon", "restart" 2>&1 | Out-Null
+    Start-Sleep -Seconds 3
+
     # ──── 1. 启动会话 ────
     $sid = Start-BskSession -BrowserInstanceId $BrowserInstanceId
     if (-not $sid) {
