@@ -270,7 +270,7 @@ function Invoke-WarmupPipeline {
     Set-LogFile -Path $logFile
 
     Write-Log "╔══════════════════════════════════════╗"
-    Write-Log "║  bsk 报表预热自动化                   ║"
+    Write-Log "║  bsk 报表预热自动化                  ║"
     Write-Log "╚══════════════════════════════════════╝"
     Write-Log "环境: $Env"
     Write-Log "时间: $startFmt"
