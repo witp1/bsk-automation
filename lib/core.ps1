@@ -6,23 +6,16 @@
 # Start-Job 在非交互式进程（任务计划程序）下不保证超时
 # ══════════════════════════════════════════════
 function Invoke-BskWithTimeout {
-    <#
-    .SYNOPSIS
-        执行 bsk 命令，强制超时后 Kill 进程
-    .PARAMETER ArgsList
-        bsk 参数列表，如 @("status")、@("session","start","--json")
-    .PARAMETER TimeoutMs
-        超时毫秒数（默认 10 秒）
-    .RETURNS
-        @{ Output=$string; TimedOut=$bool }
-    #>
     param(
         [Parameter(Mandatory)][string[]]$ArgsList,
         [int]$TimeoutMs = 10000
     )
+    $cmdStr = ($ArgsList -join " ")
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+
     $proc = New-Object System.Diagnostics.Process
     $proc.StartInfo.FileName               = $BskPath
-    $proc.StartInfo.Arguments              = $ArgsList -join " "
+    $proc.StartInfo.Arguments              = $cmdStr
     $proc.StartInfo.UseShellExecute        = $false
     $proc.StartInfo.RedirectStandardOutput = $true
     $proc.StartInfo.RedirectStandardError  = $true
@@ -31,16 +24,26 @@ function Invoke-BskWithTimeout {
     $timedOut = $false
     $stdout   = ""
     $stderr   = ""
+    $pid      = 0
 
     try {
         $proc.Start() | Out-Null
+        $pid = $proc.Id
+        Write-Log "[bsk] 开始: bsk $cmdStr (PID: $pid, 超时: ${TimeoutMs}ms)" -Level Info
+
         $timedOut = -not $proc.WaitForExit($TimeoutMs)
+        $sw.Stop()
+
         if ($timedOut) {
-            $proc.Kill()
+            Write-Log "[bsk] 超时! bsk $cmdStr (PID: $pid, 耗时: $($sw.ElapsedMilliseconds)ms)" -Level Warn
+            try { $proc.Kill() } catch { Write-Log "[bsk] Kill 失败: $_" -Level Error }
         }
         $stdout = $proc.StandardOutput.ReadToEnd()
         $stderr = $proc.StandardError.ReadToEnd()
+        Write-Log "[bsk] 完成: bsk $cmdStr (PID: $pid, 耗时: $($sw.ElapsedMilliseconds)ms, 超时: $timedOut, 输出: $(($stdout.Length + $stderr.Length)) 字符)" -Level Info
     } catch {
+        $sw.Stop()
+        Write-Log "[bsk] 异常: bsk $cmdStr ($_)" -Level Error
         $stdout = ""
         $timedOut = $true
     } finally {

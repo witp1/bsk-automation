@@ -279,6 +279,13 @@ function Invoke-WarmupPipeline {
 
     # ──── 0. 确保 daemon 在运行 ────
     Write-Log "检查 daemon 状态..."
+
+    # 诊断：先列出当前 bsk 进程和锁文件状态
+    $runningBsk = Get-Process -Name "bsk" -ErrorAction SilentlyContinue
+    $lockExists = Test-Path "$env:USERPROFILE\.bsk\daemon.lock"
+    $jsonExists = Test-Path "$env:USERPROFILE\.bsk\daemon.json"
+    Write-Log "[诊断] bsk 进程数: $($runningBsk.Count), daemon.lock: $lockExists, daemon.json: $jsonExists"
+
     $sr = Invoke-BskWithTimeout -ArgsList @("status") -TimeoutMs 10000
 
     if ($sr.Output -notmatch 'daemon running') {
