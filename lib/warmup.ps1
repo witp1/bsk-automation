@@ -277,16 +277,6 @@ function Invoke-WarmupPipeline {
     if ($ResumeFrom)   { Write-Log "断点恢复: $ResumeFrom" }
     if ($ReportFilter) { Write-Log "过滤: $ReportFilter" }
 
-    # ──── 0. 强制重启 daemon，避免浏览器扩展假连接 ────
-    Write-Log "强制重启 daemon..."
-    $daemonProc = Get-Process -Name "bsk" -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $BskPath }
-    if ($daemonProc) {
-        Stop-Process -Id $daemonProc.Id -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 1
-    }
-    & $BskPath "daemon", "start" 2>&1 | Out-Null
-    Start-Sleep -Seconds 3
-
     # ──── 1. 启动会话 ────
     $sid = Start-BskSession -BrowserInstanceId $BrowserInstanceId
     if (-not $sid) {
