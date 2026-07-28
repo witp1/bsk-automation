@@ -51,15 +51,20 @@ if (-not $PSBoundParameters.ContainsKey('Env')) {
 
 # ---- 校验并执行 ----
 if (-not $BskPath) { Write-Host '[ERROR] bsk.exe 未找到' -ForegroundColor Red; exit 1 }
-$user = $AccountUser[$Env]
-if ([string]::IsNullOrEmpty($user) -or $user -match '^your_') { Write-Host '[ERROR] 账号未配置' -ForegroundColor Red; exit 1 }
-$pass = $AccountPass[$Env]
-if ([string]::IsNullOrEmpty($pass) -or $pass -match '^your_') { Write-Host '[ERROR] 密码未配置' -ForegroundColor Red; exit 1 }
+if (-not $NoLogin) {
+    $user = $AccountUser[$Env]
+    if ([string]::IsNullOrEmpty($user) -or $user -match '^your_') { Write-Host '[ERROR] 账号未配置' -ForegroundColor Red; exit 1 }
+    $pass = $AccountPass[$Env]
+    if ([string]::IsNullOrEmpty($pass) -or $pass -match '^your_') { Write-Host '[ERROR] 密码未配置' -ForegroundColor Red; exit 1 }
+}
 # 设置输出编码为 UTF-8，确保 bsk snapshot 中文能正确解析
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
+if (-not $NoLogin) { Write-Host ('env: ' + $Env + ' user: ' + $AccountUser[$Env]) -ForegroundColor Cyan }
 Write-Host ('bsk: ' + $BskPath) -ForegroundColor Cyan
-Write-Host ('env: ' + $Env + ' user: ' + $user) -ForegroundColor Cyan
 $result = Invoke-WarmupPipeline -Env $Env -ResumeFrom $ResumeFrom -ReportFilter $ReportFilter -NoLogin:$NoLogin -BrowserInstanceId $BrowserInstance
-if ($result -and $result.Failed -gt 0) { exit 2 }
-elseif (-not $result) { exit 1 }
-exit 0
+if ($result) {
+    if ($result.Failed -gt 0) { exit 2 }
+    exit 0
+} else {
+    exit 1
+}

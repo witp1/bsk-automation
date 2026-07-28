@@ -13,9 +13,6 @@ $SCRIPT:LoginUrl   = @{
     "prod" = "https://dataportal.fuchuang.com/dataport/superLogin"
 }
 
-# ──── 报表中心在树中的显示名称（用于动态判断树条目类型）────
-$SCRIPT:ReportCenterLabel = "报表中心"
-
 # ──── 日志 ────
 $SCRIPT:LogDir = Join-Path (Join-Path $PSScriptRoot "..") "logs"
 

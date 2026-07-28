@@ -60,7 +60,7 @@ if ($WarmupSchedule.Enabled) {
 
     Write-Host ""
     Write-Host "  env: $($WarmupSchedule.Env)"
-    Write-Host "  time: $($WarmupSchedule.Hour):$($WarmupSchedule.Minute)" -NoNewline
+    Write-Host "  time: $($WarmupSchedule.Hour):$($WarmupSchedule.Minute.ToString('D2'))" -NoNewline
     if ($WarmupSchedule.RepeatEvery -gt 0) { Write-Host " (repeat every $($WarmupSchedule.RepeatEvery) h)" -NoNewline }
     Write-Host ""
     if ($WarmupSchedule.ReportFilter) { Write-Host "  filter: $($WarmupSchedule.ReportFilter)" }

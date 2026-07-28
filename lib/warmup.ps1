@@ -460,6 +460,8 @@ window.__bskObserver.observe(document.body, {childList: true, subtree: true});
             Select-Object ReportName, Status, Duration, Error |
             Export-Csv -Path $resultFile -NoTypeInformation -Encoding UTF8
 
+        return @{ Success = $successCount; Failed = $failCount }
+
     } catch {
         Write-Log "[异常] $_" -Level Error
         Write-Log "[堆栈] $($_.ScriptStackTrace)" -Level Error
