@@ -47,23 +47,18 @@ if ($WarmupSchedule.Enabled) {
     $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-ExecutionPolicy Bypass -File `"$RunPs1`" $envArg"
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Hours 4)
 
-    $triggers = @()
-    $triggers += New-ScheduledTaskTrigger -Daily -At "$($WarmupSchedule.Hour):$($WarmupSchedule.Minute)"
+    $trigger = New-ScheduledTaskTrigger -Daily -At "$($WarmupSchedule.Hour):$($WarmupSchedule.Minute)"
     if ($WarmupSchedule.RepeatEvery -gt 0) {
-        $triggers[0].Repetition.Duration = New-TimeSpan -Days 1
-        $triggers[0].Repetition.Interval = New-TimeSpan -Hours $WarmupSchedule.RepeatEvery
+        $trigger.RepetitionInterval = New-TimeSpan -Hours $WarmupSchedule.RepeatEvery
+        $trigger.RepetitionDuration = New-TimeSpan -Days 1
     }
 
-    if ($warmupExists) {
-        Set-ScheduledTask -TaskName $warmupTaskName -Action $action -Trigger $triggers -Settings $settings
-        Write-Host "[OK] warmup task updated" -ForegroundColor Green
-    } else {
-        try {
-            Register-ScheduledTask -TaskName $warmupTaskName -Action $action -Trigger $triggers -Settings $settings -User $env:USERNAME -RunLevel Highest
-            Write-Host "[OK] warmup task created" -ForegroundColor Green
-        } catch {
-            Write-Host "[!!] warmup task failed: $_" -ForegroundColor Red
-        }
+    if ($warmupExists) { Unregister-ScheduledTask -TaskName $warmupTaskName -Confirm:$false }
+    try {
+        Register-ScheduledTask -TaskName $warmupTaskName -Action $action -Trigger $trigger -Settings $settings -User $env:USERNAME -RunLevel Highest -Force
+        Write-Host "[OK] warmup task created" -ForegroundColor Green
+    } catch {
+        Write-Host "[!!] warmup task failed: $_" -ForegroundColor Red
     }
 
     Write-Host ""
