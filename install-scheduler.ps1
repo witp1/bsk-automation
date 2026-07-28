@@ -38,40 +38,38 @@ if ($DaemonAutoStart.Enabled) {
 
 # --- 2. 预热定时任务 ---
 $warmupTaskName = "bsk-warmup"
-$warmupExists = Get-ScheduledTask -TaskName $warmupTaskName -ErrorAction SilentlyContinue
 
 if ($WarmupSchedule.Enabled) {
-    $envArg = "-Env $($WarmupSchedule.Env)"
-    if ($WarmupSchedule.ReportFilter) { $envArg += " -ReportFilter `"$($WarmupSchedule.ReportFilter)`"" }
+    $time = $WarmupSchedule.Hour.ToString('D2') + ":" + $WarmupSchedule.Minute.ToString('D2')
+    $cmd = "`"$BskExe`" powershell -ExecutionPolicy Bypass -File `"$RunPs1`" -Env $($WarmupSchedule.Env)"
+    if ($WarmupSchedule.ReportFilter) { $cmd += " -ReportFilter `"$($WarmupSchedule.ReportFilter)`"" }
 
-    $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-ExecutionPolicy Bypass -File `"$RunPs1`" $envArg"
-    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Hours 4)
+    # 先删旧任务
+    schtasks /delete /tn $warmupTaskName /f 2>&1 | Out-Null
 
-    $trigger = New-ScheduledTaskTrigger -Daily -At "$($WarmupSchedule.Hour):$($WarmupSchedule.Minute)"
+    # 用 schtasks 创建（支持 /ri 重复间隔，兼容所有 PowerShell 版本）
     if ($WarmupSchedule.RepeatEvery -gt 0) {
-        $trigger.RepetitionInterval = New-TimeSpan -Hours $WarmupSchedule.RepeatEvery
-        $trigger.RepetitionDuration = New-TimeSpan -Days 1
+        $intervalMin = [int]($WarmupSchedule.RepeatEvery * 60)
+        schtasks /create /tn $warmupTaskName /tr "powershell -ExecutionPolicy Bypass -File `"$RunPs1`" -Env $($WarmupSchedule.Env)" /sc daily /st $time /ri $intervalMin /du 23:59 /ru $env:USERNAME /rl highest /f 2>&1 | Out-Null
+    } else {
+        schtasks /create /tn $warmupTaskName /tr "powershell -ExecutionPolicy Bypass -File `"$RunPs1`" -Env $($WarmupSchedule.Env)" /sc daily /st $time /ru $env:USERNAME /rl highest /f 2>&1 | Out-Null
     }
 
-    if ($warmupExists) { Unregister-ScheduledTask -TaskName $warmupTaskName -Confirm:$false }
-    try {
-        Register-ScheduledTask -TaskName $warmupTaskName -Action $action -Trigger $trigger -Settings $settings -User $env:USERNAME -RunLevel Highest -Force
+    if ($LASTEXITCODE -eq 0) {
         Write-Host "[OK] warmup task created" -ForegroundColor Green
-    } catch {
-        Write-Host "[!!] warmup task failed: $_" -ForegroundColor Red
+    } else {
+        Write-Host "[!!] warmup task failed" -ForegroundColor Red
     }
 
     Write-Host ""
     Write-Host "  env: $($WarmupSchedule.Env)"
-    Write-Host "  time: $($WarmupSchedule.Hour):$($WarmupSchedule.Minute.ToString('D2'))" -NoNewline
+    Write-Host "  time: $time" -NoNewline
     if ($WarmupSchedule.RepeatEvery -gt 0) { Write-Host " (repeat every $($WarmupSchedule.RepeatEvery) h)" -NoNewline }
     Write-Host ""
     if ($WarmupSchedule.ReportFilter) { Write-Host "  filter: $($WarmupSchedule.ReportFilter)" }
 } else {
-    if ($warmupExists) {
-        Unregister-ScheduledTask -TaskName $warmupTaskName -Confirm:$false
-        Write-Host "[--] warmup task removed" -ForegroundColor Yellow
-    }
+    schtasks /delete /tn $warmupTaskName /f 2>&1 | Out-Null
+    Write-Host "[--] warmup task removed" -ForegroundColor Yellow
 }
 
 # --- 3. 确认 ---
