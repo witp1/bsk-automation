@@ -22,8 +22,12 @@ if ($DaemonAutoStart.Enabled) {
         Set-ScheduledTask -TaskName $daemonTaskName -Action $action -Trigger $trigger -Settings $settings
         Write-Host "[OK] daemon auto-start updated" -ForegroundColor Green
     } else {
-        Register-ScheduledTask -TaskName $daemonTaskName -Action $action -Trigger $trigger -Settings $settings -User $env:USERNAME -RunLevel Highest
-        Write-Host "[OK] daemon auto-start created" -ForegroundColor Green
+        try {
+            Register-ScheduledTask -TaskName $daemonTaskName -Action $action -Trigger $trigger -Settings $settings -User $env:USERNAME -RunLevel Highest
+            Write-Host "[OK] daemon auto-start created" -ForegroundColor Green
+        } catch {
+            Write-Host "[!!] daemon auto-start failed: $_" -ForegroundColor Red
+        }
     }
 } else {
     if ($daemonExists) {
@@ -54,8 +58,12 @@ if ($WarmupSchedule.Enabled) {
         Set-ScheduledTask -TaskName $warmupTaskName -Action $action -Trigger $triggers -Settings $settings
         Write-Host "[OK] warmup task updated" -ForegroundColor Green
     } else {
-        Register-ScheduledTask -TaskName $warmupTaskName -Action $action -Trigger $triggers -Settings $settings -User $env:USERNAME -RunLevel Highest
-        Write-Host "[OK] warmup task created" -ForegroundColor Green
+        try {
+            Register-ScheduledTask -TaskName $warmupTaskName -Action $action -Trigger $triggers -Settings $settings -User $env:USERNAME -RunLevel Highest
+            Write-Host "[OK] warmup task created" -ForegroundColor Green
+        } catch {
+            Write-Host "[!!] warmup task failed: $_" -ForegroundColor Red
+        }
     }
 
     Write-Host ""
