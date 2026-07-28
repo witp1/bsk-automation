@@ -24,23 +24,23 @@ function Invoke-BskWithTimeout {
     $timedOut = $false
     $stdout   = ""
     $stderr   = ""
-    $pid      = 0
+    $procId   = 0
 
     try {
         $proc.Start() | Out-Null
-        $pid = $proc.Id
-        Write-Log "[bsk] 开始: bsk $cmdStr (PID: $pid, 超时: ${TimeoutMs}ms)" -Level Info
+        $procId = $proc.Id
+        Write-Log "[bsk] 开始: bsk $cmdStr (PID: $procId, 超时: ${TimeoutMs}ms)" -Level Info
 
         $timedOut = -not $proc.WaitForExit($TimeoutMs)
         $sw.Stop()
 
         if ($timedOut) {
-            Write-Log "[bsk] 超时! bsk $cmdStr (PID: $pid, 耗时: $($sw.ElapsedMilliseconds)ms)" -Level Warn
+            Write-Log "[bsk] 超时! bsk $cmdStr (PID: $procId, 耗时: $($sw.ElapsedMilliseconds)ms)" -Level Warn
             try { $proc.Kill() } catch { Write-Log "[bsk] Kill 失败: $_" -Level Error }
         }
         $stdout = $proc.StandardOutput.ReadToEnd()
         $stderr = $proc.StandardError.ReadToEnd()
-        Write-Log "[bsk] 完成: bsk $cmdStr (PID: $pid, 耗时: $($sw.ElapsedMilliseconds)ms, 超时: $timedOut, 输出: $(($stdout.Length + $stderr.Length)) 字符)" -Level Info
+        Write-Log "[bsk] 完成: bsk $cmdStr (PID: $procId, 耗时: $($sw.ElapsedMilliseconds)ms, 超时: $timedOut, 输出: $(($stdout.Length + $stderr.Length)) 字符)" -Level Info
     } catch {
         $sw.Stop()
         Write-Log "[bsk] 异常: bsk $cmdStr ($_)" -Level Error
