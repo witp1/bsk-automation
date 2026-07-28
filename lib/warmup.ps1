@@ -277,6 +277,22 @@ function Invoke-WarmupPipeline {
     if ($ResumeFrom)   { Write-Log "断点恢复: $ResumeFrom" }
     if ($ReportFilter) { Write-Log "过滤: $ReportFilter" }
 
+    # ──── 0. 确保 daemon 在运行 ────
+    Write-Log "检查 daemon 状态..."
+    $status = & $BskPath "status" 2>&1 | Out-String
+    if ($status -notmatch 'daemon running') {
+        Write-Log "daemon 未运行，尝试启动..."
+        $lockFile = "$env:USERPROFILE\.bsk\daemon.lock"
+        if (Test-Path $lockFile) {
+            # 清理可能的残留锁文件
+            Remove-Item $lockFile -Force -ErrorAction SilentlyContinue
+            Remove-Item "$env:USERPROFILE\.bsk\daemon.json" -Force -ErrorAction SilentlyContinue
+        }
+        & $BskPath "daemon", "start" 2>&1 | Out-Null
+        Start-Sleep -Seconds 3
+        Write-Log "daemon 启动完成"
+    }
+
     # ──── 1. 启动会话 ────
     $sid = Start-BskSession -BrowserInstanceId $BrowserInstanceId
     if (-not $sid) {

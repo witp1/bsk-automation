@@ -47,16 +47,22 @@ function Start-BskSession {
 
     Write-Log "启动 bsk 会话..."
 
-    # 预检：确认有浏览器连上 daemon（避免空跑等到超时）
-    $status = & $BskPath "status" 2>&1 | Out-String
-    if ($status -match 'browsers connected\s+(\d+)') {
-        $browserCount = [int]$matches[1]
-        if ($browserCount -lt 1) {
-            Write-Log "无浏览器连接到 daemon，请先打开 Chrome 且扩展处于 connected 状态" -Level Error
-            return ""
+    # 等待浏览器连上 daemon（daemon 刚启动时扩展需要几秒自动重连）
+    $maxWait = 20
+    $browserReady = $false
+    for ($w = 0; $w -lt $maxWait; $w++) {
+        $status = & $BskPath "status" 2>&1 | Out-String
+        if ($status -match 'browsers connected\s+(\d+)') {
+            if ([int]$matches[1] -ge 1) {
+                $browserReady = $true
+                Write-Log "浏览器已连接 (等待 ${w}s)"
+                break
+            }
         }
-    } else {
-        Write-Log "无法读取 daemon 状态" -Level Error
+        Start-Sleep -Seconds 3
+    }
+    if (-not $browserReady) {
+        Write-Log "等待浏览器连接超时（${maxWait}s），请确认 Chrome 已开启且扩展处于 connected 状态" -Level Error
         return ""
     }
 
@@ -65,7 +71,6 @@ function Start-BskSession {
         $argsList += @("--browser", $BrowserInstanceId)
     }
 
-    # 用 job 加超时（30s），避免浏览器未开时无限等待
     $job = Start-Job -ScriptBlock {
         param($bskPath, $argsList)
         & $bskPath $argsList 2>&1
@@ -74,7 +79,7 @@ function Start-BskSession {
 
     if (-not $jobDone) {
         Stop-Job -Job $job
-        Write-Log "bsk 会话启动超时（30s），可能浏览器未开启" -Level Error
+        Write-Log "bsk 会话启动超时（30s）" -Level Error
         return ""
     }
 
