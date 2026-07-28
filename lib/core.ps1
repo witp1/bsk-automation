@@ -151,24 +151,20 @@ function Start-BskSession {
 }
 
 function Stop-BskSession {
-    <#
-    .SYNOPSIS
-        停止指定 bsk 会话（session_id 为位置参数）
-    .PARAMETER SessionId
-        要停止的会话 ID
-    #>
     param([Parameter(Mandatory)][string]$SessionId)
 
     Write-Log "停止会话: $SessionId"
-    $result = & $BskPath "session", "stop", $SessionId, "--json" 2>&1
-    $output = $result -join "`n" | Out-String
-
-    if ($LASTEXITCODE -ne 0) {
-        Write-Log "会话停止异常, 继续流程" -Level Warn
+    $sr = Invoke-BskWithTimeout -ArgsList @("session","stop",$SessionId,"--json") -TimeoutMs 5000
+    if ($sr.TimedOut) {
+        Write-Log "会话停止超时，跳过" -Level Warn
         return $false
     }
-    Write-Log "会话已停止" -Level Info
-    return $true
+    if ($sr.Output -match '"ok"|"stopped"') {
+        Write-Log "会话已停止" -Level Info
+        return $true
+    }
+    Write-Log "会话停止异常: $($sr.Output)" -Level Warn
+    return $false
 }
 
 # ──── 浏览器操作 ────
