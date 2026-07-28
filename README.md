@@ -1,4 +1,4 @@
-# bsk.exe 报表预热自动化
+﻿# bsk.exe 报表预热自动化
 
 定时通过 **bsk.exe** 驱动真实浏览器，遍历数据门户报表中心下所有报表，逐一打开触发 Tableau 服务端缓存，提升报表加载速度、优化用户访问体验。
 
@@ -91,17 +91,18 @@ Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
 
 ```
  0. 预热启动
-    ├─ daemon 自愈
-    │   ├─ bsk status → 没在跑 → 清残留锁文件 → bsk daemon start
-    │   └─ 已在跑 → 跳过
+    ├─ 杀残留 bsk 进程 + 清锁文件
+    ├─ bsk daemon start（-NoOutput，不重定向管道，防止 fork 子进程死锁）
+    │   └─ 超时 → 强杀重来
     │
-    ├─ 等待浏览器连接（轮询每 3s，最多 60s）
+    ├─ 等待浏览器连接（轮询每 3s，最多 60s，.NET Process.WaitForExit 硬超时）
     │   ├─ bsk status → browsers connected ≥ 1 → 继续
     │   └─ 超时 → 报错退出
     │
-    ├─ bsk session start（30s 超时 via Start-Job）
-    │   └─ 拿到 session_id → 继续
+    ├─ bsk session start（.NET Process.WaitForExit 30s 硬超时）
+    │   └─ 解析 JSON session_id → 继续
     │
+ 1. navigate → 超级登录页
  1. navigate → 超级登录页
  2. JS evaluate 填凭据 + click 登录 → 自动跳转首页
  3. click「报表中心」→ 展开所有节点
@@ -239,9 +240,13 @@ BrowserSkill 扩展 → CDP 协议 → Agent Window
 | `[Console]::OutputEncoding = UTF8` | 解决 bsk snapshot JSON 中文乱码 |
 | JS evaluate 操作 DOM | 绕过 `bsk fill` 写入不生效，dispatchEvent 触发 Vue 响应式 |
 | MutationObserver + 三重验证（src + URL + title） | 区分正常报表与假连接/打不开的无效报表 |
-| `Start-Job` + `Wait-Job -Timeout 30` | 避免 `bsk session start` 无浏览器时无限等待 |
+| `.NET Process.WaitForExit(ms)` + `Process.Kill()` | 替代 `Start-Job` 后台作业，任务计划程序下也能硬超时 |
+| `-NoOutput` 模式（不重定向 stdout） | `bsk daemon start` 会 fork 子进程，子进程继承管道导致 `WaitForExit` 死锁 |
+| 超时后跳过 `ReadToEnd()` | 强杀进程后管道状态不可预测，`ReadToEnd()` 可能永久阻塞 |
 | 轮询 `bsk status`（每 3s，最多 60s） | daemon 启动后等待浏览器扩展自动重连 |
-| daemon 启动时清残留锁文件 | 解决上次异常退出后 daemon 无法启动的问题 |
+| daemon 检查改为**先杀进程再启动** | 僵尸 daemon 进程持有 named pipe 导致后续命令全部阻塞 |
+| JSON 解析 `session_id` 判断成功 | `.NET Process` 不设置 `$LASTEXITCODE`，旧检查导致 session 实际成功但被误判为失败 |
+| `Stop-BskSession` 用 5s 超时 | 避免 finally 块卡死进程退出 |
 | `schtasks.exe` 创建定时任务 | 回避 PowerShell 5.1 `RepetitionInterval` 的兼容性问题 |
 
 ## 日志
@@ -269,12 +274,14 @@ CSV 字段：
 | 问题 | 原因 | 解决 |
 |------|------|------|
 | `bsk daemon start` 报 `no valid daemon.json` | 上次异常退出残留锁文件 | 删 `~/.bsk/daemon.lock` 和 `daemon.json`（脚本已自动处理） |
-| 浏览器扩展显示 connected 但脚本报无浏览器 | daemon 与扩展 WebSocket 假连接 | 点扩展图标断开再重连 |
 | daemon 自己停了 | 空闲 600 秒后自动退出 | 脚本已自动检测并重启 |
-| 定时任务卡住不退出 | 之前代码无超时，`session start` 死等 | 已改为 job + 30s 超时 |
+| 定时任务卡住不退出 | `ReadToEnd()` 在 Kill 后死锁，或 `daemon start` 管道被 fork 子进程继承 | 已改为 `.NET Process.WaitForExit(ms)` + `-NoOutput` |
+| 会话实际启动成功但报失败 | `.NET Process` 不设 `$LASTEXITCODE`，旧检查误判 | 已改为 JSON 解析 `session_id` |
+| 浏览器扩展显示 connected 但脚本报无浏览器 | daemon 与扩展 WebSocket 假连接 | 脚本会在 60s 内自动轮询等待重连 |
 | snapshot 解析中文乱码 | PowerShell 输出编码问题 | 已在 run.ps1 设置 `OutputEncoding = UTF8` |
 | 结果 CSV 有空行 | Export-Csv 遇到空元素 | 已加 `Where-Object { $_.ReportName }` 过滤 |
 | install-scheduler 报拒绝访问 | 非管理员身份 | 右键 PowerShell → 以管理员身份运行 |
+| `-ReportFilter` 配置不生效 | `install-scheduler.ps1` 中死变量 `$cmd` 未传入 schtasks | 已修复 |
 
 ## 跨机器
 
