@@ -4,7 +4,7 @@
 # 预热执行时间（24 小时制）
 $SCRIPT:WarmupSchedule = @{
     Enabled      = $true          # $true / $false
-    Hour         = 10              # 0-23
+    Hour         = 11              # 0-23
     Minute       = 30             # 0-59
     RepeatEvery  = 0.5              # 每隔几小时重复执行（0=不重复；0.5=每30分钟；2=每2小时）
     Env          = "test"         # test / prod
