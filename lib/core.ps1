@@ -51,7 +51,13 @@ function Start-BskSession {
     $maxWait = 20
     $browserReady = $false
     for ($w = 0; $w -lt $maxWait; $w++) {
-        $status = & $BskPath "status" 2>&1 | Out-String
+        # 用 job 包装 bsk status，避免 daemon 异常阻塞
+        $sj = Start-Job -ScriptBlock { param($p) & $p "status" 2>&1 } -ArgumentList $BskPath
+        $done = Wait-Job -Job $sj -Timeout 5
+        $status = ""
+        if ($done) { $status = Receive-Job -Job $sj | Out-String }
+        else { Stop-Job -Job $sj; Write-Log "bsk status 查询超时，跳过此次轮询" -Level Warn }
+        Remove-Job -Job $sj -Force
         if ($status -match 'browsers connected\s+(\d+)') {
             if ([int]$matches[1] -ge 1) {
                 $browserReady = $true
