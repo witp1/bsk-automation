@@ -46,7 +46,6 @@ if ($WarmupSchedule.Enabled) {
     $triggers = @()
     $triggers += New-ScheduledTaskTrigger -Daily -At "$($WarmupSchedule.Hour):$($WarmupSchedule.Minute)"
     if ($WarmupSchedule.RepeatEvery -gt 0) {
-        $triggers[0].Repetition = New-ScheduledTaskTrigger -Daily -At "$($WarmupSchedule.Hour):$($WarmupSchedule.Minute)"
         $triggers[0].Repetition.Duration = New-TimeSpan -Days 1
         $triggers[0].Repetition.Interval = New-TimeSpan -Hours $WarmupSchedule.RepeatEvery
     }
