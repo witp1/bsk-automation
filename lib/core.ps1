@@ -1,13 +1,61 @@
 ﻿# ──── lib/core.ps1 — bsk 操作封装 ────
 # 为所有 bsk.exe CLI 命令提供统一的 PowerShell 封装
-# 实测命令参考：
-#   bsk session start         → 返回 session_id (plain text)
-#   bsk session stop <sid>    → 停止会话
-#   bsk navigate <url>        → 导航（--session, --wait-until, --timeout）
-#   bsk snapshot --json       → 返回 {text, ref_count, tab_id, truncated}
-#   bsk click <ref>           → 点击（--session, --timeout）
-#   bsk fill --value <val>    → 填充表单（--session, --ref, --value）
-#   bsk evaluate <expr>       → 执行 JS（--session, --timeout）
+
+# ══════════════════════════════════════════════
+# 内部辅助：带超时的 bsk 命令调用（.NET Process，非 Start-Job）
+# Start-Job 在非交互式进程（任务计划程序）下不保证超时
+# ══════════════════════════════════════════════
+function Invoke-BskWithTimeout {
+    <#
+    .SYNOPSIS
+        执行 bsk 命令，强制超时后 Kill 进程
+    .PARAMETER ArgsList
+        bsk 参数列表，如 @("status")、@("session","start","--json")
+    .PARAMETER TimeoutMs
+        超时毫秒数（默认 10 秒）
+    .RETURNS
+        @{ Output=$string; TimedOut=$bool }
+    #>
+    param(
+        [Parameter(Mandatory)][string[]]$ArgsList,
+        [int]$TimeoutMs = 10000
+    )
+    $proc = New-Object System.Diagnostics.Process
+    $proc.StartInfo.FileName               = $BskPath
+    $proc.StartInfo.Arguments              = $ArgsList -join " "
+    $proc.StartInfo.UseShellExecute        = $false
+    $proc.StartInfo.RedirectStandardOutput = $true
+    $proc.StartInfo.RedirectStandardError  = $true
+    $proc.StartInfo.CreateNoWindow         = $true
+
+    $timedOut = $false
+    $stdout   = ""
+    $stderr   = ""
+
+    try {
+        $proc.Start() | Out-Null
+        $timedOut = -not $proc.WaitForExit($TimeoutMs)
+        if ($timedOut) {
+            $proc.Kill()
+        }
+        $stdout = $proc.StandardOutput.ReadToEnd()
+        $stderr = $proc.StandardError.ReadToEnd()
+    } catch {
+        $stdout = ""
+        $timedOut = $true
+    } finally {
+        try { $proc.Dispose() } catch {}
+    }
+
+    return @{
+        Output  = ($stdout, $stderr -join "`n").Trim()
+        TimedOut = $timedOut
+    }
+}
+
+# ══════════════════════════════════════════════
+# 公共函数
+# ══════════════════════════════════════════════
 
 function Set-LogFile {
     param([string]$Path)
@@ -47,23 +95,15 @@ function Start-BskSession {
 
     Write-Log "启动 bsk 会话..."
 
-    # 等待浏览器连上 daemon（daemon 刚启动时扩展需要几秒自动重连）
+    # 等待浏览器连上 daemon（每 3s 轮询，最多 60s）
     $maxWait = 20
     $browserReady = $false
     for ($w = 0; $w -lt $maxWait; $w++) {
-        # 用 job 包装 bsk status，避免 daemon 异常阻塞
-        $sj = Start-Job -ScriptBlock { param($p) & $p "status" 2>&1 } -ArgumentList $BskPath
-        $done = Wait-Job -Job $sj -Timeout 5
-        $status = ""
-        if ($done) { $status = Receive-Job -Job $sj | Out-String }
-        else { Stop-Job -Job $sj; Write-Log "bsk status 查询超时，跳过此次轮询" -Level Warn }
-        Remove-Job -Job $sj -Force
-        if ($status -match 'browsers connected\s+(\d+)') {
-            if ([int]$matches[1] -ge 1) {
-                $browserReady = $true
-                Write-Log "浏览器已连接 (等待 ${w}s)"
-                break
-            }
+        $sr = Invoke-BskWithTimeout -ArgsList @("status") -TimeoutMs 5000
+        if (-not $sr.TimedOut -and $sr.Output -match 'browsers connected\s+(\d+)' -and [int]$matches[1] -ge 1) {
+            $browserReady = $true
+            Write-Log "浏览器已连接 (等待 ${w}s)"
+            break
         }
         Start-Sleep -Seconds 3
     }
@@ -76,22 +116,12 @@ function Start-BskSession {
     if ($BrowserInstanceId) {
         $argsList += @("--browser", $BrowserInstanceId)
     }
-
-    $job = Start-Job -ScriptBlock {
-        param($bskPath, $argsList)
-        & $bskPath $argsList 2>&1
-    } -ArgumentList $BskPath, $argsList
-    $jobDone = Wait-Job -Job $job -Timeout 30
-
-    if (-not $jobDone) {
-        Stop-Job -Job $job
+    $sr = Invoke-BskWithTimeout -ArgsList $argsList -TimeoutMs 30000
+    if ($sr.TimedOut) {
         Write-Log "bsk 会话启动超时（30s）" -Level Error
         return ""
     }
-
-    $result = Receive-Job -Job $job
-    Remove-Job -Job $job
-    $output = $result -join "`n" | Out-String
+    $output = $sr.Output
 
     if ($LASTEXITCODE -ne 0 -or -not $output) {
         Write-Log "bsk 会话启动失败: $output" -Level Error

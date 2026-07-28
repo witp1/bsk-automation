@@ -279,35 +279,23 @@ function Invoke-WarmupPipeline {
 
     # ──── 0. 确保 daemon 在运行 ────
     Write-Log "检查 daemon 状态..."
+    $sr = Invoke-BskWithTimeout -ArgsList @("status") -TimeoutMs 10000
 
-    # bsk status 也用 job 加超时（10s），避免 daemon 残留/网络异常阻塞
-    $statusJob = Start-Job -ScriptBlock {
-        param($BskPath) & $BskPath "status" 2>&1
-    } -ArgumentList $BskPath
-    $statusDone = Wait-Job -Job $statusJob -Timeout 10
-    $status = ""
-    if ($statusDone) {
-        $status = Receive-Job -Job $statusJob | Out-String
-    } else {
-        Stop-Job -Job $statusJob
-        Write-Log "bsk status 超时（10s），daemon 可能卡死，清理后重启" -Level Warn
-    }
-    Remove-Job -Job $statusJob -Force
+    if ($sr.Output -notmatch 'daemon running') {
+        if ($sr.TimedOut) { Write-Log "bsk status 超时，daemon 异常，重建" -Level Warn }
+        else              { Write-Log "daemon 未运行，尝试启动..." }
 
-    if ($status -notmatch 'daemon running') {
-        Write-Log "daemon 未运行，尝试启动..."
+        # 清理残留锁文件 + 杀残留进程
         $lockFile = "$env:USERPROFILE\.bsk\daemon.lock"
         if (Test-Path $lockFile) {
             Remove-Item $lockFile -Force -ErrorAction SilentlyContinue
             Remove-Item "$env:USERPROFILE\.bsk\daemon.json" -Force -ErrorAction SilentlyContinue
         }
-        # 杀任何残留的 bsk.exe 进程
-        Get-Process -Name "bsk" -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $BskPath } | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
-        $daemonJob = Start-Job -ScriptBlock {
-            param($BskPath) & $BskPath "daemon", "start" 2>&1
-        } -ArgumentList $BskPath
-        Wait-Job -Job $daemonJob -Timeout 10 | Out-Null
-        Remove-Job -Job $daemonJob -Force
+        Get-Process -Name "bsk" -ErrorAction SilentlyContinue |
+            Where-Object { $_.Path -eq $BskPath } |
+            ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+
+        Invoke-BskWithTimeout -ArgsList @("daemon","start") -TimeoutMs 10000 | Out-Null
         Start-Sleep -Seconds 3
         Write-Log "daemon 启动完成"
     }
