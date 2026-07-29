@@ -6,8 +6,7 @@ $SCRIPT:WarmupSchedule = @{
     Enabled      = $true          # $true / $false
     Hour         = 10              # 首次触发小时（24 小时制）
     Minute       = 10             # 首次触发分钟
-    ActiveStart  = 8              # 允许执行起始小时（含），只影响重复时长
-    ActiveEnd    = 20             # 允许执行结束小时（不含）
+    ActiveEnd    = 20             # 重复截止小时（不含），如 8:30~20:00 则设 20
     RepeatEvery  = 1              # 重复间隔（小时，支持小数；0=不重复）
     Env          = "test"         # test / prod
     ReportFilter = ""             # 可选，按关键字过滤
