@@ -497,7 +497,7 @@ window.__bskObserver.observe(document.body, {childList: true, subtree: true});
 @
 
         # ──── 5. 死锁看门狗 ────
-        $deadlockFile = "$LogFolder\deadlock.flag"
+        $deadlockFile = "$LogDir\deadlock.flag"
         $bskPid = (Get-Process -Name bsk -ErrorAction SilentlyContinue | Select-Object -First 1).Id
         $watchdog = Start-Job -Name "bsk-watchdog" -ScriptBlock {
             param($pid, $flagFile)
