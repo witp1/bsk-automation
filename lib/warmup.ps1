@@ -246,17 +246,7 @@ $script:fillAndLoginJs = @'
     p.value = ''; p.value = pass;
     p.dispatchEvent(new Event('input',{bubbles:true}));
     p.dispatchEvent(new Event('change',{bubbles:true}));
-    var btn = Array.from(document.querySelectorAll('button'))
-        .find(function(b){return b.textContent.trim()==='登录';});
-    if (btn) {
-        btn.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true}));
-        btn.click();
-        // Vue 可能绑定在 form submit 上
-        var form = btn.closest('form');
-        if (form) { form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})); }
-        return JSON.stringify({ok:true, msg:'submitted'});
-    }
-    return JSON.stringify({ok:false, msg:'no-button'});
+    return JSON.stringify({ok:true, msg:'filled'});
 })()
 '@
 
@@ -387,12 +377,22 @@ function Invoke-WarmupPipeline {
                 Invoke-BskNavigate -SessionId $sid -Url $LoginUrl[$Env] -WaitSec 3
             }
 
-            # 一次性 JS 完成：定位输入框 → 填值 → 触发 Vue 事件 → 点登录按钮
+            # 一次性 JS 完成：定位输入框 → 填值 → 触发 Vue 事件
             $js = $script:fillAndLoginJs.Replace('__USER__', $loginUser).Replace('__PASS__', $loginPass)
             Write-Log "[诊断] 发送给浏览器的 JS: $js"
             $fillRes = Invoke-BskEvaluate -SessionId $sid -Script $js
             Write-Log "登录提交结果: $fillRes"
-            Start-Sleep -Seconds 3
+            Start-Sleep -Seconds 1
+
+            # CDP 级点击登录按钮（Vue handler 不响应 JS 层 click/MouseEvent）
+            $snap2 = Invoke-BskSnapshot -SessionId $sid
+            $btn = Find-ElementByText -Elements $snap2 -Text "登录" -Exact
+            if ($btn.Count -gt 0) {
+                Write-Log "点击登录按钮: ref=$($btn[0].Ref)"
+                Invoke-BskClick -SessionId $sid -Ref $btn[0].Ref -WaitSec 3
+            } else {
+                Write-Log "未找到登录按钮" -Level Error; return
+            }
 
             # 验证（最多重试一次处理 SSO 拦截）
             Write-Log "等待跳转..."
@@ -401,9 +401,15 @@ function Invoke-WarmupPipeline {
             $url = Invoke-BskEvaluate -SessionId $sid -Script "window.location.href"
             if ($url -like "*portal-hmg*" -or $url -like "*sso*") {
                 Write-Log "检测到 SSO 拦截，切回数据门户重新登录..." -Level Warn
-                # 复用同一个 JS 重新填凭据 + 点登录
+                # 复用同一个 JS 重新填凭据 → bsk click 登录按钮
                 Invoke-BskNavigate -SessionId $sid -Url $LoginUrl[$Env] -WaitSec 3
                 Invoke-BskEvaluate -SessionId $sid -Script $js | Out-Null
+                Start-Sleep -Seconds 1
+                $snapR = Invoke-BskSnapshot -SessionId $sid
+                $btnR = Find-ElementByText -Elements $snapR -Text "登录" -Exact
+                if ($btnR.Count -gt 0) {
+                    Invoke-BskClick -SessionId $sid -Ref $btnR[0].Ref -WaitSec 3
+                }
                 Start-Sleep -Seconds 5
                 $url = Invoke-BskEvaluate -SessionId $sid -Script "window.location.href"
             }
