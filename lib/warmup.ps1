@@ -557,24 +557,35 @@ window.__bskObserver.observe(document.body, {childList: true, subtree: true});
         Write-Log "[异常] $_" -Level Error
         Write-Log "[堆栈] $($_.ScriptStackTrace)" -Level Error
     } finally {
-        # 退出登录
+        # 退出登录：hover 右上角用户菜单 → click「退出」
         try {
             Write-Log "退出登录..."
             Invoke-BskNavigate -SessionId $sid -Url $PortalHome[$Env] -WaitSec 3
-            $logoutSnap = Invoke-BskSnapshot -SessionId $sid
-            $logoutBtn = Find-ElementByText -Elements $logoutSnap -Text "退出"
-            if ($logoutBtn.Count -gt 0) {
-                Invoke-BskClick -SessionId $sid -Ref $logoutBtn[0].Ref -WaitSec 2
-            } else {
-                # 兜底：尝试直接走登出 URL
-                $baseUrl = ($PortalHome[$Env] -replace '/homepage','')
-                Invoke-BskNavigate -SessionId $sid -Url "$baseUrl/logout" -WaitSec 3
-            }
-            Write-Log "已退出登录"
+            $logoutJs = @'
+(function() {
+    var btn = document.querySelector('button');
+    if (!btn) return 'no-button';
+    btn.dispatchEvent(new MouseEvent('mouseenter', {bubbles:true}));
+    var start = Date.now();
+    var iv = setInterval(function() {
+        var items = document.querySelectorAll('.v-menu__content .v-list-item');
+        if (items.length > 0) {
+            clearInterval(iv);
+            items[items.length-1].click();
+        } else if (Date.now() - start > 3000) {
+            clearInterval(iv);
+        }
+    }, 200);
+    return 'sent';
+})();
+'@
+            Invoke-BskEvaluate -SessionId $sid -Script $logoutJs | Out-Null
+            Start-Sleep -Seconds 3
+            $url = Invoke-BskEvaluate -SessionId $sid -Script "window.location.href"
+            if ($url -match "superLogin|login") { Write-Log "已退出登录" } else { Write-Log "退出登录完成" }
         } catch {
             Write-Log "退出登录失败: $_" -Level Warn
         }
-        # 关闭浏览器会话
         Stop-BskSession -SessionId $sid
         Write-Log "流程结束"
     }
