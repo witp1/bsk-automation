@@ -305,7 +305,7 @@ function Invoke-WarmupPipeline {
     $daemonReady = $false
     for ($i = 0; $i -lt 10; $i++) {
         $check = Invoke-BskWithTimeout -ArgsList @("status") -TimeoutMs 3000
-        if ($check.Output -match 'daemon running') {
+        if ($check.Output -match 'daemon version') {
             $daemonReady = $true
             Write-Log "daemon 已启动 (等待 ${i}s)"
             break
