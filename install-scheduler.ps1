@@ -44,8 +44,7 @@ if ($DaemonAutoStart.Enabled) {
 $warmupTaskName = "bsk-warmup"
 
 if ($WarmupSchedule.Enabled) {
-    # 起始时间 +1 分钟防止竞态（schtasks 创建耗时可能跨过 /st 时间点）
-    $startMin = $WarmupSchedule.Hour * 60 + $WarmupSchedule.Minute + 1
+    $startMin = $WarmupSchedule.Hour * 60 + $WarmupSchedule.Minute
     $time = ([int]($startMin / 60)).ToString('D2') + ":" + ($startMin % 60).ToString('D2')
     $activeEnd = if ($WarmupSchedule.ContainsKey('ActiveEnd')) { $WarmupSchedule.ActiveEnd } else { 20 }
     $durationMin = ($activeEnd * 60) - ($WarmupSchedule.Hour * 60 + $WarmupSchedule.Minute)

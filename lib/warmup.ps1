@@ -385,6 +385,7 @@ function Invoke-WarmupPipeline {
 
             # 一次性 JS 完成：定位输入框 → 填值 → 触发 Vue 事件 → 点登录按钮
             $js = $script:fillAndLoginJs.Replace('__USER__', $loginUser).Replace('__PASS__', $loginPass)
+            Write-Log "[诊断] 发送给浏览器的 JS: $js"
             $fillRes = Invoke-BskEvaluate -SessionId $sid -Script $js
             Write-Log "登录提交结果: $fillRes"
             Start-Sleep -Seconds 3
