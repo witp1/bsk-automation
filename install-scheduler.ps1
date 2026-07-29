@@ -44,12 +44,11 @@ if ($DaemonAutoStart.Enabled) {
 $warmupTaskName = "bsk-warmup"
 
 if ($WarmupSchedule.Enabled) {
-    $startMin = $WarmupSchedule.Hour * 60 + $WarmupSchedule.Minute
-    $time = ([int]($startMin / 60)).ToString('D2') + ":" + ($startMin % 60).ToString('D2')
+    $time = $WarmupSchedule.Hour.ToString('D2') + ":" + $WarmupSchedule.Minute.ToString('D2')
     $activeEnd = if ($WarmupSchedule.ContainsKey('ActiveEnd')) { $WarmupSchedule.ActiveEnd } else { 20 }
     $durationMin = ($activeEnd * 60) - ($WarmupSchedule.Hour * 60 + $WarmupSchedule.Minute)
     if ($durationMin -le 0) { $durationMin += 1440 }
-    $durationStr = ([int]($durationMin / 60)).ToString('D2') + ':' + ($durationMin % 60).ToString('D2')
+    $durationStr = [math]::Floor($durationMin / 60).ToString('D2') + ':' + ($durationMin % 60).ToString('D2')
 
     # 构造命令参数
     $taskArgs = "-ExecutionPolicy Bypass -File `"$RunPs1`" -Env $($WarmupSchedule.Env)"
