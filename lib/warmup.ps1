@@ -293,6 +293,19 @@ function Invoke-WarmupPipeline {
         Write-Log "[诊断] 已清理残留锁文件"
     }
 
+    # 确保 Chrome 在运行（bsk 需要通过扩展控制浏览器）
+    if (-not (Get-Process chrome -ErrorAction SilentlyContinue)) {
+        Write-Log "Chrome 未运行，自动启动..."
+        $chrome = Get-Command chrome -ErrorAction SilentlyContinue
+        if ($chrome) {
+            Start-Process $chrome.Source
+            Start-Sleep -Seconds 5
+            Write-Log "Chrome 已启动，等待扩展连接..."
+        } else {
+            Write-Log "未找到 Chrome，跳过自动启动" -Level Warn
+        }
+    }
+
     # 启动 daemon（-NoOutput：daemon fork 子进程会继承管道导致 WaitForExit 死锁）
     $dr = Invoke-BskWithTimeout -ArgsList @("daemon","start") -TimeoutMs 10000 -NoOutput
     if ($dr.TimedOut) {
@@ -313,21 +326,8 @@ function Invoke-WarmupPipeline {
         Start-Sleep -Seconds 1
     }
     if (-not $daemonReady) {
-        Write-Log "daemon 启动失败，终止" -Level Error
+        Write-Log "daemon 启动失���，终止" -Level Error
         return
-    }
-
-    # ──── 0.5 确保 Chrome 在运行 ────
-    if (-not (Get-Process chrome -ErrorAction SilentlyContinue)) {
-        Write-Log "Chrome 未运行，自动启动..."
-        $chrome = Get-Command chrome -ErrorAction SilentlyContinue
-        if ($chrome) {
-            Start-Process $chrome.Source
-            Start-Sleep -Seconds 5
-            Write-Log "Chrome 已启动，等待扩展连接..."
-        } else {
-            Write-Log "未找到 Chrome，跳过自动启动" -Level Warn
-        }
     }
 
     # ──── 1. 启动会话 ────
