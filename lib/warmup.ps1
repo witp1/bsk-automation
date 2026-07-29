@@ -493,12 +493,47 @@ window.__bskObserver = new MutationObserver(function(muts) {
     }
 });
 window.__bskObserver.observe(document.body, {childList: true, subtree: true});
-"@
+"}
+@
+
+        # ──── 5. 死锁看门狗 ────
+        $deadlockFile = "$LogFolder\deadlock.flag"
+        $bskPid = (Get-Process -Name bsk -ErrorAction SilentlyContinue | Select-Object -First 1).Id
+        $watchdog = Start-Job -Name "bsk-watchdog" -ScriptBlock {
+            param($pid, $flagFile)
+            $idleCount = 0
+            $lastCpu = $null
+            while ($true) {
+                Start-Sleep -Seconds 5
+                $p = Get-Process -Id $pid -ErrorAction SilentlyContinue
+                if (-not $p) { break }  # 进程已死，退出
+                $cpu = $p.CPU
+                if ($lastCpu -ne $null -and $cpu -eq $lastCpu) {
+                    $idleCount++
+                    if ($idleCount -ge 12) {
+                        "DEADLOCK" | Out-File -FilePath $flagFile -Encoding ascii
+                        Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+                        Stop-Process -Name chrome -Force -ErrorAction SilentlyContinue
+                        break
+                    }
+                } else {
+                    $idleCount = 0
+                }
+                $lastCpu = $cpu
+            }
+        } -ArgumentList $bskPid, $deadlockFile
 
         for ($i = 0; $i -lt $total; $i++) {
             $r = $reports[$i]
             # 跳过空名称的报表（树解析偶发）
             if ([string]::IsNullOrEmpty($r.ReportName)) { continue }
+
+            # 检查死锁标记
+            if (Test-Path $deadlockFile) {
+                Write-Log "[死锁检测] bsk 进程 60s 无响应，Chrome 已 frozen，终止本轮" -Level Error
+                throw "Deadlock detected"
+            }
+
             Write-Log "--- [$($i+1)/$total] ---"
             $result = Invoke-ReportWarmup -SessionId $sid -Report $r
             $results += $result
@@ -508,6 +543,11 @@ window.__bskObserver.observe(document.body, {childList: true, subtree: true});
                 Write-Log "[统计] $($i+1)/$total | 成功 $successCount | 失败 $failCount"
             }
         }
+
+        # 停止死锁看门狗
+        Stop-Job -Name "bsk-watchdog" -ErrorAction SilentlyContinue
+        Remove-Job -Name "bsk-watchdog" -ErrorAction SilentlyContinue
+        Remove-Item $deadlockFile -Force -ErrorAction SilentlyContinue
 
         # ──── 9. 输出结果 ────
         $pipelineEnd = Get-Date
@@ -529,6 +569,10 @@ window.__bskObserver.observe(document.body, {childList: true, subtree: true});
     } catch {
         Write-Log "[异常] $_" -Level Error
         Write-Log "[堆栈] $($_.ScriptStackTrace)" -Level Error
+        # 异常时也要停 watchdog（死锁检测触发的 throw 会走到这里）
+        Stop-Job -Name "bsk-watchdog" -ErrorAction SilentlyContinue
+        Remove-Job -Name "bsk-watchdog" -ErrorAction SilentlyContinue
+        Remove-Item $deadlockFile -Force -ErrorAction SilentlyContinue
     } finally {
         # 退出登录：hover 右上角用户菜单 → click「退出」
         try {
