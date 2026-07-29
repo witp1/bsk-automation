@@ -366,14 +366,3 @@ function Find-ElementByText {
     }
 }
 
-function Find-ElementByTag {
-    <#
-    .SYNOPSIS
-        按标签类型查找元素
-    #>
-    param(
-        [Parameter(Mandatory)][array]$Elements,
-        [Parameter(Mandatory)][string]$Tag
-    )
-    return $Elements | Where-Object { $_.Tag -eq $Tag }
-}

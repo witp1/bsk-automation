@@ -256,8 +256,6 @@ $script:fillAndLoginJs = @'
 # ──── 完整预热管道 ────
 
 function Invoke-WarmupPipeline {
-
-function Invoke-WarmupPipeline {
     <#
     .SYNOPSIS
         完整预热流水线
@@ -427,7 +425,7 @@ function Invoke-WarmupPipeline {
             Write-Log "未找到「报表中心」导航项" -Level Warn
         }
 
-        # ──── 5. 扫描树 ────
+        # ──── 4. 扫描树 ────
         $reports = Get-ReportTree -SessionId $sid
         if ($reports.Count -eq 0) {
             Write-Log "未找到报表，终止" -Level Error
@@ -547,7 +545,7 @@ window.__bskObserver.observe(document.body, {childList: true, subtree: true});
             Invoke-BskEvaluate -SessionId $sid -Script $logoutJs | Out-Null
             Start-Sleep -Seconds 3
             $url = Invoke-BskEvaluate -SessionId $sid -Script "window.location.href"
-            if ($url -match "superLogin|login") { Write-Log "已退出登录" } else { Write-Log "退出登录完成" }
+            if ($url -match "login") { Write-Log "已退出登录" } else { Write-Log "退出登录完成" }
         } catch {
             Write-Log "退出登录失败: $_" -Level Warn
         }
