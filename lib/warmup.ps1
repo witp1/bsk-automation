@@ -293,28 +293,15 @@ function Invoke-WarmupPipeline {
         Write-Log "[诊断] 已清理残留锁文件"
     }
 
-    # 确保 Chrome 在运行（bsk 需要通过扩展控制浏览器）
+    # 确保 Chrome 在运行（Start-Process 走 ShellExecute → 注册表 App Paths，不依赖 PATH）
     if (-not (Get-Process chrome -ErrorAction SilentlyContinue)) {
         Write-Log "Chrome 未运行，自动启动..."
-        $chromePaths = @(
-            (Get-Command chrome -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source),
-            "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
-            "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe",
-            "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe"
-        )
-        $chromeFound = $false
-        foreach ($cp in $chromePaths) {
-            if ($cp -and (Test-Path $cp)) {
-                Start-Process $cp
-                $chromeFound = $true
-                break
-            }
-        }
-        if ($chromeFound) {
+        try {
+            Start-Process "chrome"
             Start-Sleep -Seconds 5
             Write-Log "Chrome 已启动，等待扩展连接..."
-        } else {
-            Write-Log "未找到 Chrome 安装路径，跳过自动启动" -Level Warn
+        } catch {
+            Write-Log "无法启动 Chrome: $_" -Level Error
         }
     }
 
