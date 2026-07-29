@@ -557,6 +557,13 @@ window.__bskObserver.observe(document.body, {childList: true, subtree: true});
         Write-Log "[异常] $_" -Level Error
         Write-Log "[堆栈] $($_.ScriptStackTrace)" -Level Error
     } finally {
+        # 退出登录（清理本地存储，解除登录态）
+        try {
+            Invoke-BskEvaluate -SessionId $sid -Script "localStorage.clear(); sessionStorage.clear();" | Out-Null
+            Write-Log "已退出登录"
+        } catch {
+            Write-Log "退出登录失败: $_" -Level Warn
+        }
         Stop-BskSession -SessionId $sid
         Write-Log "流程结束"
     }
