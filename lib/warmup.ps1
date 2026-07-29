@@ -576,10 +576,9 @@ window.__bskObserver.observe(document.body, {childList: true, subtree: true});
         # 退出登录：hover 右上角用户菜单 → click「退出」
         try {
             Write-Log "退出登录..."
-            Invoke-BskNavigate -SessionId $sid -Url $PortalHome[$Env] -WaitSec 3
             $logoutJs = @'
 (function() {
-    var btn = document.querySelector('button');
+    var btn = document.querySelector('header button, .v-toolbar button, .v-app-bar button');
     if (!btn) return 'no-button';
     btn.dispatchEvent(new MouseEvent('mouseenter', {bubbles:true}));
     var start = Date.now();
