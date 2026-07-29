@@ -232,7 +232,30 @@ function Invoke-ReportWarmup {
     }
 }
 
+# 共享：登录页 JS 模板（按 {0}/{1} 填用户名密码）
+# 用 querySelector 直接定位输入框和按钮，避开 AX ref 顺序漂移问题
+$script:fillAndLoginJs = @'
+(function() {
+    var u = document.querySelector('input[type="text"], input:not([type="password"])');
+    var p = document.querySelector('input[type="password"]');
+    if (!u || !p) return JSON.stringify({ok:false, msg:'no-inputs'});
+    var user = "<<USER>>", pass = "<<PASS>>";
+    u.value = ''; u.value = user;
+    u.dispatchEvent(new Event('input',{bubbles:true}));
+    u.dispatchEvent(new Event('change',{bubbles:true}));
+    p.value = ''; p.value = pass;
+    p.dispatchEvent(new Event('input',{bubbles:true}));
+    p.dispatchEvent(new Event('change',{bubbles:true}));
+    var btn = Array.from(document.querySelectorAll('button'))
+        .find(function(b){return b.textContent.trim()==='登录';});
+    if (btn) { btn.click(); return JSON.stringify({ok:true, msg:'submitted'}); }
+    return JSON.stringify({ok:false, msg:'no-button'});
+})()
+'@
+
 # ──── 完整预热管道 ────
+
+function Invoke-WarmupPipeline {
 
 function Invoke-WarmupPipeline {
     <#
@@ -362,51 +385,11 @@ function Invoke-WarmupPipeline {
                 Invoke-BskNavigate -SessionId $sid -Url $LoginUrl[$Env] -WaitSec 3
             }
 
-            # 填充凭据（用 JS 直接设 value，绕过框架校验）
-            $snap = Invoke-BskSnapshot -SessionId $sid
-            $boxes = Find-ElementByTag -Elements $snap -Tag "textbox"
-            if ($boxes.Count -ge 2) {
-                # 先聚焦到第一个输入框，再用 JS 同时填入两个字段
-                Invoke-BskClick -SessionId $sid -Ref $boxes[0].Ref -WaitSec 1
-                $safeUser = $loginUser -replace "'", "\\'"
-                $safePass = $loginPass -replace "'", "\\'"
-                $fillJs = @"
-(function() {
-    var inputs = document.querySelectorAll('input');
-    var r = {user: false, pass: false};
-    for (var i = 0; i < inputs.length; i++) {
-        var t = (inputs[i].type || '').toLowerCase();
-        if (!r.user && (t === 'text' || t === 'email' || t === '')) {
-            inputs[i].value = ''; inputs[i].focus(); inputs[i].value = '$safeUser';
-            inputs[i].dispatchEvent(new Event('input', {bubbles:true}));
-            inputs[i].dispatchEvent(new Event('change', {bubbles:true}));
-            r.user = true;
-        } else if (!r.pass && t === 'password') {
-            inputs[i].value = ''; inputs[i].focus(); inputs[i].value = '$safePass';
-            inputs[i].dispatchEvent(new Event('input', {bubbles:true}));
-            inputs[i].dispatchEvent(new Event('change', {bubbles:true}));
-            r.pass = true;
-        }
-    }
-    return JSON.stringify(r);
-})();
-"@
-                Invoke-BskEvaluate -SessionId $sid -Script $fillJs
-                Write-Log "凭据已填入" -Level Success
-            } else {
-                Write-Log "未找到输入框" -Level Error; return
-            }
-            Start-Sleep -Seconds 1
-
-            # 点登录
-            $snap2 = Invoke-BskSnapshot -SessionId $sid
-            $btn = Find-ElementByText -Elements $snap2 -Text "登录" -Exact
-            if ($btn.Count -gt 0) {
-                Write-Log "[诊断] 找到登录按钮: ref=$($btn[0].Ref) tag=$($btn[0].Tag) text='$($btn[0].Text)' count=$($snap2.Count) refs=$(($snap2 | Measure-Object).Count)"
-                Invoke-BskClick -SessionId $sid -Ref $btn[0].Ref -WaitSec 3
-            } else {
-                Write-Log "未找到登录按钮" -Level Error; return
-            }
+            # 一次性 JS 完成：定位输入框 → 填值 → 触发 Vue 事件 → 点登录按钮
+            $js = $script:fillAndLoginJs.Replace('<<USER>>', $loginUser).Replace('<<PASS>>', $loginPass)
+            $fillRes = Invoke-BskEvaluate -SessionId $sid -Script $js
+            Write-Log "登录提交结果: $fillRes"
+            Start-Sleep -Seconds 3
 
             # 验证（最多重试一次处理 SSO 拦截）
             Write-Log "等待跳转..."
@@ -415,38 +398,9 @@ function Invoke-WarmupPipeline {
             $url = Invoke-BskEvaluate -SessionId $sid -Script "window.location.href"
             if ($url -like "*portal-hmg*" -or $url -like "*sso*") {
                 Write-Log "检测到 SSO 拦截，切回数据门户重新登录..." -Level Warn
-                # 导航回 superLogin 重新填凭据
+                # 复用同一个 JS 重新填凭据 + 点登录
                 Invoke-BskNavigate -SessionId $sid -Url $LoginUrl[$Env] -WaitSec 3
-                $snapR = Invoke-BskSnapshot -SessionId $sid
-                $boxesR = Find-ElementByTag -Elements $snapR -Tag "textbox"
-                if ($boxesR.Count -ge 2) {
-                    Invoke-BskEvaluate -SessionId $sid -Script @"
-(function() {
-    var inputs = document.querySelectorAll('input');
-    var r = {user: false, pass: false};
-    for (var i = 0; i < inputs.length; i++) {
-        var t = (inputs[i].type || '').toLowerCase();
-        if (!r.user && (t === 'text' || t === 'email' || t === '')) {
-            inputs[i].value = ''; inputs[i].focus(); inputs[i].value = '$safeUser';
-            inputs[i].dispatchEvent(new Event('input', {bubbles:true}));
-            inputs[i].dispatchEvent(new Event('change', {bubbles:true}));
-            r.user = true;
-        } else if (!r.pass && t === 'password') {
-            inputs[i].value = ''; inputs[i].focus(); inputs[i].value = '$safePass';
-            inputs[i].dispatchEvent(new Event('input', {bubbles:true}));
-            inputs[i].dispatchEvent(new Event('change', {bubbles:true}));
-            r.pass = true;
-        }
-    }
-    return JSON.stringify(r);
-})();
-"@
-                    Start-Sleep -Seconds 1
-                    $btnR = Find-ElementByText -Elements (Invoke-BskSnapshot -SessionId $sid) -Text "登录" -Exact
-                    if ($btnR.Count -gt 0) {
-                        Invoke-BskClick -SessionId $sid -Ref $btnR[0].Ref -WaitSec 3
-                    }
-                }
+                Invoke-BskEvaluate -SessionId $sid -Script $js | Out-Null
                 Start-Sleep -Seconds 5
                 $url = Invoke-BskEvaluate -SessionId $sid -Script "window.location.href"
             }
