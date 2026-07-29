@@ -20,7 +20,7 @@ if ($DaemonAutoStart.Enabled) {
 
     if ($daemonExists) {
         try {
-            Set-ScheduledTask -TaskName $daemonTaskName -Action $action -Trigger $trigger -Settings $settings
+            Set-ScheduledTask -TaskName $daemonTaskName -Action $action -Trigger $trigger -Settings $settings -ErrorAction Stop
             Write-Host "[OK] daemon auto-start updated" -ForegroundColor Green
         } catch {
             Write-Host "[--] daemon 已存在（权限不足跳过更新）" -ForegroundColor Yellow
@@ -55,18 +55,20 @@ if ($WarmupSchedule.Enabled) {
     $taskArgs = "-ExecutionPolicy Bypass -File `"$RunPs1`" -Env $($WarmupSchedule.Env)"
     if ($WarmupSchedule.ReportFilter) { $taskArgs += " -ReportFilter `"$($WarmupSchedule.ReportFilter)`"" }
 
-    # 先删旧任务
+    # 先删旧任务（忽略删除的退出码）
     schtasks /delete /tn $warmupTaskName /f 2>&1 | Out-Null
 
     # 用 schtasks 创建（/ri 重复间隔，/du 可执行时长）
     if ($WarmupSchedule.RepeatEvery -gt 0) {
         $intervalMin = [int]($WarmupSchedule.RepeatEvery * 60)
-        schtasks /create /tn $warmupTaskName /tr "powershell $taskArgs" /sc daily /st $time /ri $intervalMin /du $durationStr /ru $env:USERNAME /rl highest /f 2>&1 | Out-Null
+        $null = schtasks /create /tn $warmupTaskName /tr "powershell $taskArgs" /sc daily /st $time /ri $intervalMin /du $durationStr /ru $env:USERNAME /rl highest /f 2>&1
+        $ok = ($LASTEXITCODE -eq 0)
     } else {
-        schtasks /create /tn $warmupTaskName /tr "powershell $taskArgs" /sc daily /st $time /ru $env:USERNAME /rl highest /f 2>&1 | Out-Null
+        $null = schtasks /create /tn $warmupTaskName /tr "powershell $taskArgs" /sc daily /st $time /ru $env:USERNAME /rl highest /f 2>&1
+        $ok = ($LASTEXITCODE -eq 0)
     }
 
-    if ($LASTEXITCODE -eq 0) {
+    if ($ok) {
         Write-Host "[OK] warmup task created" -ForegroundColor Green
     } else {
         Write-Host "[!!] warmup task failed" -ForegroundColor Red
