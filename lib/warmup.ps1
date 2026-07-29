@@ -248,7 +248,14 @@ $script:fillAndLoginJs = @'
     p.dispatchEvent(new Event('change',{bubbles:true}));
     var btn = Array.from(document.querySelectorAll('button'))
         .find(function(b){return b.textContent.trim()==='登录';});
-    if (btn) { btn.click(); return JSON.stringify({ok:true, msg:'submitted'}); }
+    if (btn) {
+        btn.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true}));
+        btn.click();
+        // Vue 可能绑定在 form submit 上
+        var form = btn.closest('form');
+        if (form) { form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})); }
+        return JSON.stringify({ok:true, msg:'submitted'});
+    }
     return JSON.stringify({ok:false, msg:'no-button'});
 })()
 '@
