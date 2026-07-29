@@ -493,8 +493,7 @@ window.__bskObserver = new MutationObserver(function(muts) {
     }
 });
 window.__bskObserver.observe(document.body, {childList: true, subtree: true});
-"}
-@
+"@
 
         # ──── 5. 死锁看门狗 ────
         $deadlockFile = "$LogDir\deadlock.flag"
