@@ -343,6 +343,13 @@ function Invoke-WarmupPipeline {
             if (-not $navOk) { Write-Log "导航到登录页失败" -Level Error; return }
             Start-Sleep -Seconds 2
 
+            # 确认没有跳转到 SSO（会话过期时会重定向到 SSO 页面）
+            $preUrl = Invoke-BskEvaluate -SessionId $sid -Script "window.location.href"
+            if ($preUrl -like "*portal-hmg*" -or $preUrl -like "*sso*") {
+                Write-Log "登录页被 SSO 拦截，切回数据门户..." -Level Warn
+                Invoke-BskNavigate -SessionId $sid -Url $LoginUrl[$Env] -WaitSec 3
+            }
+
             # 填充凭据（用 JS 直接设 value，绕过框架校验）
             $snap = Invoke-BskSnapshot -SessionId $sid
             $boxes = Find-ElementByTag -Elements $snap -Tag "textbox"
