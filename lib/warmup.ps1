@@ -175,6 +175,7 @@ function Invoke-ReportWarmup {
 })();
 "@
     $clickResult = Invoke-BskEvaluate -SessionId $SessionId -Script $registerJs
+    if ($clickResult -eq '__SESSION_DEAD__') { throw "Session disconnected by user" }
 
     if ($clickResult -eq "not_found") {
         Write-Log "[预热] 点击未命中，标记失败" -Level Error
@@ -201,6 +202,7 @@ function Invoke-ReportWarmup {
 })();
 "@
             $result = Invoke-BskEvaluate -SessionId $SessionId -Script $checkJs
+            if ($result -eq '__SESSION_DEAD__') { throw "Session disconnected by user" }
             if ($result -eq "loaded") {
                 Write-Log "[预热] iframe 加载完成 ($($t+1)s)" -Level Success
                 $loaded = $true
@@ -208,7 +210,8 @@ function Invoke-ReportWarmup {
             } elseif ($result -eq "spurious") {
                 Write-Log "[预热] iframe load 事件为无关触发，继续等待" -Level Warn
                 # 重置标志位，继续等真正的加载
-                Invoke-BskEvaluate -SessionId $SessionId -Script "window.__bskLoaded = false"
+                $resetRes = Invoke-BskEvaluate -SessionId $SessionId -Script "window.__bskLoaded = false"
+                if ($resetRes -eq '__SESSION_DEAD__') { throw "Session disconnected by user" }
             }
         }
         if (-not $loaded) {

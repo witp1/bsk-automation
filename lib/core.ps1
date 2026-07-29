@@ -333,6 +333,11 @@ function Invoke-BskEvaluate {
     $output = $result -join "`n" | Out-String
 
     if ($LASTEXITCODE -ne 0) {
+        # 检测会话/浏览器断开（非普通超时）
+        if ($output -match 'session|closed|disconnect|no such session') {
+            Write-Log "evaluate 失败（会话已断开）" -Level Error
+            return '__SESSION_DEAD__'
+        }
         Write-Log "evaluate 失败" -Level Error
         return $null
     }
