@@ -306,11 +306,15 @@ function Invoke-WarmupPipeline {
         ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
     Write-Log "[诊断] 已杀残留 bsk 进程"
 
-    # 清理锁文件
+    # 清理锁文件和旧 daemon 状态文件（避免新 daemon 读到旧 socket path）
     $lockFile = "$env:USERPROFILE\.bsk\daemon.lock"
+    $stateFile = "$env:USERPROFILE\.bsk\daemon.json"
     if (Test-Path $lockFile) {
         Remove-Item $lockFile -Force -ErrorAction SilentlyContinue
         Write-Log "[诊断] 已清理残留锁文件"
+    }
+    if (Test-Path $stateFile) {
+        Remove-Item $stateFile -Force -ErrorAction SilentlyContinue
     }
 
     # 确保 Chrome 在运行（Start-Process 走 ShellExecute → 注册表 App Paths）
