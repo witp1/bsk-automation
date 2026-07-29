@@ -6,6 +6,7 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 . "$ScriptDir\config\scheduler-config.ps1"
 . "$ScriptDir\config\settings.ps1"      # 复用 settings.ps1 的 bsk 路径检测
 
+if (-not $BskPath) { Write-Host "[!!] 未找到 bsk.exe，请先确认项目目录下存在 bsk.exe" -ForegroundColor Red; exit 1 }
 $RunPs1 = "$ScriptDir\run.ps1"
 
 # --- 1. daemon 开机自启 ---
