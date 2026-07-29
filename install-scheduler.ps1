@@ -40,6 +40,11 @@ if ($DaemonAutoStart.Enabled) {
 $warmupTaskName = "bsk-warmup"
 
 if ($WarmupSchedule.Enabled) {
+    # 计算可执行时长（ActiveStart ~ ActiveEnd，默认 8:00-20:00）
+    $activeStart = if ($WarmupSchedule.ContainsKey('ActiveStart')) { $WarmupSchedule.ActiveStart } else { 8 }
+    $activeEnd   = if ($WarmupSchedule.ContainsKey('ActiveEnd'))   { $WarmupSchedule.ActiveEnd   } else { 20 }
+    $duration    = $activeEnd - $activeStart
+    $durationStr = $duration.ToString('D2') + ':00'
     $time = $WarmupSchedule.Hour.ToString('D2') + ":" + $WarmupSchedule.Minute.ToString('D2')
 
     # 构造命令参数
@@ -49,10 +54,10 @@ if ($WarmupSchedule.Enabled) {
     # 先删旧任务
     schtasks /delete /tn $warmupTaskName /f 2>&1 | Out-Null
 
-    # 用 schtasks 创建（支持 /ri 重复间隔）
+    # 用 schtasks 创建（/ri 重复间隔，/du 可执行时长）
     if ($WarmupSchedule.RepeatEvery -gt 0) {
         $intervalMin = [int]($WarmupSchedule.RepeatEvery * 60)
-        schtasks /create /tn $warmupTaskName /tr "powershell $taskArgs" /sc daily /st $time /ri $intervalMin /du 23:59 /ru $env:USERNAME /rl highest /f 2>&1 | Out-Null
+        schtasks /create /tn $warmupTaskName /tr "powershell $taskArgs" /sc daily /st $time /ri $intervalMin /du $durationStr /ru $env:USERNAME /rl highest /f 2>&1 | Out-Null
     } else {
         schtasks /create /tn $warmupTaskName /tr "powershell $taskArgs" /sc daily /st $time /ru $env:USERNAME /rl highest /f 2>&1 | Out-Null
     }
