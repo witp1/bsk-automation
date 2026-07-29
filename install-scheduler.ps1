@@ -45,7 +45,7 @@ if ($WarmupSchedule.Enabled) {
     $activeEnd   = if ($WarmupSchedule.ContainsKey('ActiveEnd'))   { $WarmupSchedule.ActiveEnd   } else { 20 }
     $duration    = $activeEnd - $activeStart
     $durationStr = $duration.ToString('D2') + ':00'
-    $time = $activeStart.ToString('D2') + ':00'
+    $time = $WarmupSchedule.Hour.ToString('D2') + ":" + $WarmupSchedule.Minute.ToString('D2')
 
     # 构造命令参数
     $taskArgs = "-ExecutionPolicy Bypass -File `"$RunPs1`" -Env $($WarmupSchedule.Env)"
