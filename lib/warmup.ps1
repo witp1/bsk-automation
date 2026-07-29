@@ -239,7 +239,7 @@ $script:fillAndLoginJs = @'
     var u = document.querySelector('input[type="text"], input:not([type="password"])');
     var p = document.querySelector('input[type="password"]');
     if (!u || !p) return JSON.stringify({ok:false, msg:'no-inputs'});
-    var user = "__USER__", pass = "__PASS__";
+    var user = '__USER__', pass = '__PASS__';
     u.value = ''; u.value = user;
     u.dispatchEvent(new Event('input',{bubbles:true}));
     u.dispatchEvent(new Event('change',{bubbles:true}));
