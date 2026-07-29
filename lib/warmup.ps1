@@ -419,8 +419,6 @@ function Invoke-WarmupPipeline {
                 $snapR = Invoke-BskSnapshot -SessionId $sid
                 $boxesR = Find-ElementByTag -Elements $snapR -Tag "textbox"
                 if ($boxesR.Count -ge 2) {
-                    $safeUser = $loginUser -replace "'", "\\'"
-                    $safePass = $loginPass -replace "'", "\\'"
                     Invoke-BskEvaluate -SessionId $sid -Script @"
 (function() {
     var inputs = document.querySelectorAll('input');
@@ -428,12 +426,14 @@ function Invoke-WarmupPipeline {
     for (var i = 0; i < inputs.length; i++) {
         var t = (inputs[i].type || '').toLowerCase();
         if (!r.user && (t === 'text' || t === 'email' || t === '')) {
-            inputs[i].focus(); inputs[i].value = '$safeUser';
+            inputs[i].value = ''; inputs[i].focus(); inputs[i].value = '$safeUser';
             inputs[i].dispatchEvent(new Event('input', {bubbles:true}));
+            inputs[i].dispatchEvent(new Event('change', {bubbles:true}));
             r.user = true;
         } else if (!r.pass && t === 'password') {
-            inputs[i].focus(); inputs[i].value = '$safePass';
+            inputs[i].value = ''; inputs[i].focus(); inputs[i].value = '$safePass';
             inputs[i].dispatchEvent(new Event('input', {bubbles:true}));
+            inputs[i].dispatchEvent(new Event('change', {bubbles:true}));
             r.pass = true;
         }
     }
@@ -526,7 +526,6 @@ window.__bskObserver = new MutationObserver(function(muts) {
     }
 });
 window.__bskObserver.observe(document.body, {childList: true, subtree: true});
-'observing'
 "@
 
         for ($i = 0; $i -lt $total; $i++) {
