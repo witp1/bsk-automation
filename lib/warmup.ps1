@@ -239,7 +239,7 @@ $script:fillAndLoginJs = @'
     var u = document.querySelector('input[type="text"], input:not([type="password"])');
     var p = document.querySelector('input[type="password"]');
     if (!u || !p) return JSON.stringify({ok:false, msg:'no-inputs'});
-    var user = "<<USER>>", pass = "<<PASS>>";
+    var user = "{0}", pass = "{1}";
     u.value = ''; u.value = user;
     u.dispatchEvent(new Event('input',{bubbles:true}));
     u.dispatchEvent(new Event('change',{bubbles:true}));
@@ -384,7 +384,7 @@ function Invoke-WarmupPipeline {
             }
 
             # 一次性 JS 完成：定位输入框 → 填值 → 触发 Vue 事件 → 点登录按钮
-            $js = $script:fillAndLoginJs.Replace('<<USER>>', $loginUser).Replace('<<PASS>>', $loginPass)
+            $js = $script:fillAndLoginJs -f $loginUser, $loginPass
             $fillRes = Invoke-BskEvaluate -SessionId $sid -Script $js
             Write-Log "登录提交结果: $fillRes"
             Start-Sleep -Seconds 3
