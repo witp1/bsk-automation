@@ -13,7 +13,7 @@ $daemonTaskName = "bsk-daemon"
 $daemonExists = Get-ScheduledTask -TaskName $daemonTaskName -ErrorAction SilentlyContinue
 
 if ($DaemonAutoStart.Enabled) {
-    $action = New-ScheduledTaskAction -Execute $BskExe -Argument "daemon start"
+    $action = New-ScheduledTaskAction -Execute $BskPath -Argument "daemon start"
     $trigger = New-ScheduledTaskTrigger -AtLogOn
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
 
