@@ -19,8 +19,12 @@ if ($DaemonAutoStart.Enabled) {
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
 
     if ($daemonExists) {
-        Set-ScheduledTask -TaskName $daemonTaskName -Action $action -Trigger $trigger -Settings $settings
-        Write-Host "[OK] daemon auto-start updated" -ForegroundColor Green
+        try {
+            Set-ScheduledTask -TaskName $daemonTaskName -Action $action -Trigger $trigger -Settings $settings
+            Write-Host "[OK] daemon auto-start updated" -ForegroundColor Green
+        } catch {
+            Write-Host "[--] daemon 已存在（权限不足跳过更新）" -ForegroundColor Yellow
+        }
     } else {
         try {
             Register-ScheduledTask -TaskName $daemonTaskName -Action $action -Trigger $trigger -Settings $settings -User $env:USERNAME -RunLevel Highest
@@ -40,8 +44,9 @@ if ($DaemonAutoStart.Enabled) {
 $warmupTaskName = "bsk-warmup"
 
 if ($WarmupSchedule.Enabled) {
-    # 起始时间 + 重复时长（从 Hour:Minute 到 ActiveEnd:00）
-    $time = $WarmupSchedule.Hour.ToString('D2') + ":" + $WarmupSchedule.Minute.ToString('D2')
+    # 起始时间 +1 分钟防止竞态（schtasks 创建耗时可能跨过 /st 时间点）
+    $startMin = $WarmupSchedule.Hour * 60 + $WarmupSchedule.Minute + 1
+    $time = ($startMin / 60).ToString('D2') + ":" + ($startMin % 60).ToString('D2')
     $activeEnd = if ($WarmupSchedule.ContainsKey('ActiveEnd')) { $WarmupSchedule.ActiveEnd } else { 20 }
     $durationMin = ($activeEnd * 60) - ($WarmupSchedule.Hour * 60 + $WarmupSchedule.Minute)
     if ($durationMin -le 0) { $durationMin += 1440 }
