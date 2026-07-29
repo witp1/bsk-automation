@@ -301,8 +301,21 @@ function Invoke-WarmupPipeline {
         Remove-Item $lockFile -Force -ErrorAction SilentlyContinue
         Invoke-BskWithTimeout -ArgsList @("daemon","start") -TimeoutMs 10000 -NoOutput | Out-Null
     }
-    Start-Sleep -Seconds 3
-    Write-Log "daemon 已启动"
+    # 轮询等待 daemon 真正 ready（named pipe 可能尚未就绪）
+    $daemonReady = $false
+    for ($i = 0; $i -lt 10; $i++) {
+        $check = Invoke-BskWithTimeout -ArgsList @("status") -TimeoutMs 3000
+        if ($check.Output -match 'daemon running') {
+            $daemonReady = $true
+            Write-Log "daemon 已启动 (等待 ${i}s)"
+            break
+        }
+        Start-Sleep -Seconds 1
+    }
+    if (-not $daemonReady) {
+        Write-Log "daemon 启动失败，终止" -Level Error
+        return
+    }
 
     # ──── 1. 启动会话 ────
     $sid = Start-BskSession -BrowserInstanceId $BrowserInstanceId
