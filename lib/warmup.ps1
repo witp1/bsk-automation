@@ -296,13 +296,25 @@ function Invoke-WarmupPipeline {
     # 确保 Chrome 在运行（bsk 需要通过扩展控制浏览器）
     if (-not (Get-Process chrome -ErrorAction SilentlyContinue)) {
         Write-Log "Chrome 未运行，自动启动..."
-        $chrome = Get-Command chrome -ErrorAction SilentlyContinue
-        if ($chrome) {
-            Start-Process $chrome.Source
+        $chromePaths = @(
+            (Get-Command chrome -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source),
+            "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
+            "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe",
+            "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe"
+        )
+        $chromeFound = $false
+        foreach ($cp in $chromePaths) {
+            if ($cp -and (Test-Path $cp)) {
+                Start-Process $cp
+                $chromeFound = $true
+                break
+            }
+        }
+        if ($chromeFound) {
             Start-Sleep -Seconds 5
             Write-Log "Chrome 已启动，等待扩展连接..."
         } else {
-            Write-Log "未找到 Chrome，跳过自动启动" -Level Warn
+            Write-Log "未找到 Chrome 安装路径，跳过自动启动" -Level Warn
         }
     }
 
