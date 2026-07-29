@@ -4,10 +4,9 @@
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 . "$ScriptDir\config\scheduler-config.ps1"
+. "$ScriptDir\config\settings.ps1"      # 复用 settings.ps1 的 bsk 路径检测
 
-$ProjectDir = $ScriptDir
-$BskExe = "$ProjectDir\bsk.exe"
-$RunPs1 = "$ProjectDir\run.ps1"
+$RunPs1 = "$ScriptDir\run.ps1"
 
 # --- 1. daemon 开机自启 ---
 $daemonTaskName = "bsk-daemon"

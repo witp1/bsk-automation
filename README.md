@@ -1,6 +1,6 @@
 ﻿# bsk.exe 报表预热自动化
 
-定时通过 **bsk.exe** 驱动真实浏览器，遍历数据门户报表中心下所有报表，逐一打开触发 Tableau 服务端缓存，提升报表加载速度、优化用户访问体验。
+定时通过 **bsk.exe** 驱动真实浏览器，遍历数据门户报表中心下所有报表，逐一打开触发 Tableau 服务端缓存。
 
 **零依赖部署** — 整个项目拷贝即用，无需安装 Python/Node.js/Selenium/WebDriver。
 
@@ -13,14 +13,11 @@ bsk-automation/
 ├── config/
 │   ├── settings.ps1            # 环境 URL + bsk 路径自动检测
 │   ├── credential.ps1          # 账号凭据（每台电脑独立配置）
-│   └── scheduler-config.ps1   # 定时任务配置文件
+│   └── scheduler-config.ps1   # 定时任务配置
 ├── lib/
-│   ├── core.ps1                # bsk 操作封装（会话管理、浏览器操作）
-│   └── warmup.ps1              # 预热核心逻辑（树扫描 + iframe 检测）
+│   ├── core.ps1                # bsk 操作封装 + .NET Process 超时
+│   └── warmup.ps1              # 预热核心逻辑
 ├── logs/                       # 执行日志（按次分目录）
-│   └── YYYY-MM-DD_HH-mm-ss/
-│       ├── warmup_test.log
-│       └── result_test.csv
 ├── run.bat                     # 调试入口：双击运行
 ├── run.ps1                     # 生产入口（含交互式环境选择菜单）
 ├── install-scheduler.ps1      # 定时任务一键部署脚本
@@ -31,45 +28,37 @@ bsk-automation/
 
 | 依赖 | 来源 |
 |------|------|
-| Chrome 或 Edge | 电脑自带 |
-| browser-skill 扩展 | 项目已自带离线包 `.zip`，拖拽安装 |
-| bsk.exe | 项目已自带，即拷即用 |
+| Chrome | 必须保持打开（bsk 不启动浏览器，只控制已打开的） |
+| browser-skill 扩展 | 项目自带离线包 `.zip`，拖拽安装 |
+| bsk.exe | 项目自带 |
 | PowerShell | Windows 自带 |
 
 ## 新电脑部署
 
 ### 1. 安装 browser-skill 扩展
 
-- 打开 Chrome → `chrome://extensions/` → 回车
-- **开启**右上角「开发者模式」
-- 将 `BrowserSkill-0.1.3_0.zip` **拖拽**到扩展页面
-- 确认浏览器右上角弹窗显示 **connected**
+- Chrome → `chrome://extensions/` → 开启「开发者模式」
+- 拖拽 `BrowserSkill-0.1.3_0.zip` 到扩展页面
+- 确认右上角弹窗显示 **connected**
 
-> 离线包不能自动安装 bsk.exe，所以项目已自带。
-
-### 2. 验证 bsk
+### 2. 验证
 
 ```bash
 .\bsk daemon start
 .\bsk status     # 应显示 daemon running + browsers connected 1
 ```
 
-### 3. 配置凭据 + 运行
+### 3. 配置凭据
 
-编辑 `config/credential.ps1`，填入对应环境的账号密码，双击 `run.bat`。
+编辑 `config/credential.ps1`，填入账号密码。双击 `run.bat` 调试。
 
 ## 使用方式
 
-### 调试阶段（双击 run.bat）
+### 调试（双击 run.bat）
 
-双击 `run.bat`，显示 15 秒倒计时菜单：
-- **按 0** → 生产环境
-- **按其他任意键** → 测试环境
-- **超时** → 默认测试环境
+15 秒倒计时菜单：按 0 → 生产环境 / 其他键 → 测试环境 / 超时 → 测试环境
 
-### 生产阶段（任务计划程序 / 脚本调用）
-
-显式指定 `-Env` 参数时**直接执行**，不显示菜单：
+### 生产（命令行 / 定时任务）
 
 ```powershell
 .\run.ps1 -Env test                             # 测试环境
@@ -79,217 +68,121 @@ bsk-automation/
 .\run.ps1 -Env test -NoLogin                    # 跳过登录
 ```
 
-### 权限
-
-若提示"禁止运行脚本"，执行（仅首次需要）：
-
-```powershell
-Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
-```
-
 ## 核心流程
 
 ```
- 0. 预热启动
-    ├─ 杀残留 bsk 进程 + 清锁文件
-    ├─ bsk daemon start（-NoOutput，不重定向管道，防止 fork 子进程死锁）
-    │   └─ 超时 → 强杀重来
-    │
-    ├─ 等待浏览器连接（轮询每 3s，最多 60s，.NET Process.WaitForExit 硬超时）
-    │   ├─ bsk status → browsers connected ≥ 1 → 继续
-    │   └─ 超时 → 报错退出
-    │
-    ├─ bsk session start（.NET Process.WaitForExit 30s 硬超时）
-    │   └─ 解析 JSON session_id → 继续
-    │
- 1. navigate → 超级登录页
- 1. navigate → 超级登录页
- 2. JS evaluate 填凭据 + click 登录 → 自动跳转首页
- 3. click「报表中心」→ 展开所有节点
+ 0. 杀残留 bsk → 清锁 → 启动 daemon → 轮询确认就绪
+ 1. 启动会话 → 等待浏览器连接（60s）
+ 2. 导航超管登录页 → 预检 SSO 拦截 → 填凭据 → 点登录
+    ├─ 跳转首页 → 继续
+    └─ 被 SSO 拦截 → 切回 superLogin 重登一次
+ 3. 导航首页 → 点击「报表中心」→ 展开树
  4. snapshot 抓取 AX 树 → 解析 depth=2 分类 / depth=3 报表
- 5. 注册全局 MutationObserver → 常驻监听 iframe 替换
- 6. 遍历每个报表（每 1s 轮询，最多 15s）：
-    ├─ 记录点击前 iframe src（__bskBeforeSrc）
-    ├─ evaluate click 树节点
-    ├─ 等待 load 事件（__bskLoaded）
-    │   └─ 触发后 → 三重验证
-    │       ├─ src 变了
-    │       ├─ 是 Tableau URL（/trusted/ 或 /views/）
-    │       └─ iframe title = "数据可视化"
-    │       → 全部满足 → Success；否则重置标志位继续等
+ 5. 注册全局 MutationObserver → 监听 iframe 替换
+ 6. 遍历报表（每 1s 轮询，15s 超时）：
+    ├─ 记录当前 iframe src
+    ├─ click 树节点
+    ├─ 等 load 事件 → 三重验证（src 变了 + Tableau URL + title=数据可视化）
     └─ 15s 超时 → Failed
- 7. 输出 CSV → logs/<时间>/result_<env>.csv
- 8. bsk session stop
+ 7. 输出 CSV → logs/
+ 8. 退出登录（hover 用户菜单 → 点「退出」）→ 关闭会话
 ```
 
 ### 退出码
 
-| 退出码 | 含义 |
-|--------|------|
+| 码 | 含义 |
+|----|------|
 | 0 | 全部成功 |
-| 1 | 环境错误（bsk.exe 未找到 / 凭据未配置 / 异常） |
-| 2 | 存在失败的报表 |
+| 1 | 环境错误 / 异常 |
+| 2 | 存在失败报表 |
 
 ## 定时任务
 
-### 配置
-
-编辑 `config/scheduler-config.ps1`：
+### 配置文件 `config/scheduler-config.ps1`
 
 ```powershell
 $WarmupSchedule = @{
-    Enabled      = $true       # 开启定时任务
-    Hour         = 8           # 执行时间（24 小时制）
-    Minute       = 30
-    RepeatEvery  = 0           # 重复间隔（小时，支持小数）
-                               # 0=不重复；0.5=每30分钟；1=每1小时
-    Env          = "test"      # 执行环境：test / prod
-    ReportFilter = ""          # 可选，按关键字过滤
+    Enabled      = $true       # 开关
+    Hour         = 8           # 首次触发小时
+    Minute       = 30          # 首次触发分钟
+    ActiveEnd    = 20          # 截止小时（不含），如 20=8:30~19:30 重复
+    RepeatEvery  = 0.5         # 重复间隔（小时；0=不重复）
+    Env          = "test"
 }
-
-$DaemonAutoStart = @{
-    Enabled = $true            # bsk daemon 开机自启
-}
+$DaemonAutoStart = @{ Enabled = $true }   # daemon 开机自启
 ```
 
-### 部署
-
-**以管理员身份运行** PowerShell：
+### 部署（管理员 PowerShell）
 
 ```powershell
 cd D:\WorkBuddy\报表预热自动化\bsk-automation
 .\install-scheduler.ps1
 ```
 
-每次修改配置后重跑一次即可更新任务。
-
-### 验证
+修改配置后重跑即可更新。验证：
 
 ```powershell
-Get-ScheduledTask -TaskName "bsk-*"
-```
-
-或：
-
-```cmd
 schtasks /query /tn "bsk-warmup" /fo list
 ```
 
-状态 `Ready` = 等待触发，`Running` = 正在执行。
+## 工作前提
 
-### 工作原理
+三个条件缺一不可：
+- **Chrome 保持打开**（可最小化）
+- **browser-skill 扩展 connected**
+- **daemon 进程在运行（bsk-daemon 开机自启任务负责）**
 
-```
-开机 → bsk-daemon 任务启动 daemon（用户登录时触发）
-
-到点 → bsk-warmup 任务调用 run.ps1 -Env test
-     → 脚本自愈 daemon → 等待浏览器重连 → 预热 → logs/ → 退出
-```
-
-- `run.bat` — 给人双击调试（有 pause，防窗口闪退）
-- `run.ps1` — 给定时任务调度（无交互阻塞，显式传 -Env 跳过菜单）
+脚本不会启动 Chrome，所以这台电脑的 Chrome 需要一直开着。
 
 ## 关于 bsk.exe
 
-**bsk.exe** 是腾讯开源项目 [BrowserSkill](https://github.com/Tencent/BrowserSkill) 的核心 CLI 工具（MIT 协议，Rust 编写，6MB 单文件二进制）。它把「控制浏览器」变成了一组 shell 命令。
-
-### 架构链路
+腾讯开源项目 [BrowserSkill](https://github.com/Tencent/BrowserSkill)（MIT，Rust，6MB 单文件）。它把「控制浏览器」变成一组 shell 命令：
 
 ```
-你的脚本 / AI Agent
-    │  shell 命令: bsk xxx
-    ▼
-bsk CLI → IPC → bsk Daemon → WebSocket (127.0.0.1)
-    ▼
-BrowserSkill 扩展 → CDP 协议 → Agent Window
+脚本 → bsk CLI → IPC → bsk Daemon → WebSocket (127.0.0.1) → 扩展 → CDP → 浏览器
 ```
-
-全链路在本机，不走外网。
-
-### 提供的命令
 
 | 命令 | 说明 |
 |------|------|
 | `bsk session start/stop` | 管理浏览器会话 |
 | `bsk navigate <url>` | 导航到 URL |
-| `bsk snapshot` | 抓取页面 AX 无障碍树 |
-| `bsk click <ref>` | 点击页面元素 |
-| `bsk evaluate <js>` | 执行任意 JavaScript |
-| `bsk daemon` | 管理后台守护进程 |
-| `bsk doctor` | 一键诊断 |
-| `bsk status` | 查看 daemon + 浏览器连接状态 |
+| `bsk snapshot` | 抓取 AX 无障碍树 |
+| `bsk click <ref>` | 点击元素 |
+| `bsk evaluate <js>` | 执行 JS |
+| `bsk status` | 查看 daemon + 浏览器状态 |
 
-> 本项目本质上是把 bsk 命令串联成「登录 → 树扫描 → 遍历报表 → 检测加载」的自动化编排器。
-
-## 设计思路
-
-### 与传统方案对比
-
-| | Selenium / Playwright | 本方案 |
-|---|---|---|
-| 安装 | 安装运行时 + 对应版本 WebDriver | 扩展 + 单文件二进制，即拷即用 |
-| 浏览器 | 新建实例，需要额外登录 | **复用已登录的浏览器** |
-| 跨域 iframe | `frame.contentWindow` 可访问 | 父页面 MutationObserver + load + title |
-| 报表清单 | 维护静态文件 | 页面树动态扫描，自动发现 |
-| 调度 | cron / Airflow | Windows 任务计划程序（原生） |
-
-### 关键决策
+## 关键设计决策
 
 | 决策 | 原因 |
 |------|------|
-| `[Console]::OutputEncoding = UTF8` | 解决 bsk snapshot JSON 中文乱码 |
-| JS evaluate 操作 DOM | 绕过 `bsk fill` 写入不生效，dispatchEvent 触发 Vue 响应式 |
-| MutationObserver + 三重验证（src + URL + title） | 区分正常报表与假连接/打不开的无效报表 |
-| `.NET Process.WaitForExit(ms)` + `Process.Kill()` | 替代 `Start-Job` 后台作业，任务计划程序下也能硬超时 |
-| `-NoOutput` 模式（不重定向 stdout） | `bsk daemon start` 会 fork 子进程，子进程继承管道导致 `WaitForExit` 死锁 |
-| 超时后跳过 `ReadToEnd()` | 强杀进程后管道状态不可预测，`ReadToEnd()` 可能永久阻塞 |
-| 轮询 `bsk status`（每 3s，最多 60s） | daemon 启动后等待浏览器扩展自动重连 |
-| daemon 检查改为**先杀进程再启动** | 僵尸 daemon 进程持有 named pipe 导致后续命令全部阻塞 |
-| JSON 解析 `session_id` 判断成功 | `.NET Process` 不设置 `$LASTEXITCODE`，旧检查导致 session 实际成功但被误判为失败 |
-| `Stop-BskSession` 用 5s 超时 | 避免 finally 块卡死进程退出 |
-| `schtasks.exe` 创建定时任务 | 回避 PowerShell 5.1 `RepetitionInterval` 的兼容性问题 |
-
-## 日志
-
-每次执行自动创建独立子目录，按开始时间命名 `yyyy-MM-dd_HH-mm-ss`。
-
-```
-logs/
-└── 2026-07-28_10-08-00/
-    ├── warmup_test.log        # 详细执行日志
-    └── result_test.csv        # 结果汇总
-```
-
-CSV 字段：
-
-| 字段 | 说明 |
-|------|------|
-| ReportName | 分类/报表名 |
-| Status | Success / Failed / Skipped |
-| Duration | 单个报表耗时（秒） |
-| Error | 失败原因 |
+| `.NET Process.WaitForExit(ms)` + `Kill()` | 任务计划程序下可靠硬超时（非 Start-Job） |
+| `-NoOutput` 模式（daemon start 不重定向 stdout） | daemon fork 子进程继��管道导致 WaitForExit 死锁 |
+| 超时 Kill 后不读 `ReadToEnd()` | 强杀后管道状态不可预测，会永久阻塞 |
+| daemon 启动后轮询 `bsk status` 确认就绪 | named pipe 可能未就绪导致 status 命令卡死 |
+| 填凭据前预检 SSO 拦截 | 下班后 SSO 会话过期直接跳登录页 |
+| JSON 解析 `session_id` 判断成功 | .NET Process 不设 `$LASTEXITCODE` |
+| JS evaluate 填凭据 + dispatchEvent | 绕过 `bsk fill` 不生效，触发 Vue 响应式 |
+| 全局 MutationObserver + src+URL+title 三重验证 | 区分正常报表与假连接/无效页 |
+| `schtasks /du` 实现时间段控制 | Windows 原生，脚本侧不做运行时检查 |
+| 结束前 hover 用户菜单 → 点「退出」 | 退出登录清 SSO 会话，下次全新状态 |
 
 ## 常见问题
 
 | 问题 | 原因 | 解决 |
 |------|------|------|
-| `bsk daemon start` 报 `no valid daemon.json` | 上次异常退出残留锁文件 | 删 `~/.bsk/daemon.lock` 和 `daemon.json`（脚本已自动处理） |
-| daemon 自己停了 | 空闲 600 秒后自动退出 | 脚本已自动检测并重启 |
-| 定时任务卡住不退出 | `ReadToEnd()` 在 Kill 后死锁，或 `daemon start` 管道被 fork 子进程继承 | 已改为 `.NET Process.WaitForExit(ms)` + `-NoOutput` |
-| 会话实际启动成功但报失败 | `.NET Process` 不设 `$LASTEXITCODE`，旧检查误判 | 已改为 JSON 解析 `session_id` |
-| 浏览器扩展显示 connected 但脚本报无浏览器 | daemon 与扩展 WebSocket 假连接 | 脚本会在 60s 内自动轮询等待重连 |
-| snapshot 解析中文乱码 | PowerShell 输出编码问题 | 已在 run.ps1 设置 `OutputEncoding = UTF8` |
-| 结果 CSV 有空行 | Export-Csv 遇到空元素 | 已加 `Where-Object { $_.ReportName }` 过滤 |
-| install-scheduler 报拒绝访问 | 非管理员身份 | 右键 PowerShell → 以管理员身份运行 |
-| `-ReportFilter` 配置不生效 | `install-scheduler.ps1` 中死变量 `$cmd` 未传入 schtasks | 已修复 |
+| `bsk status` 卡死不退 | daemon named pipe 未就绪 | 已改：启动后轮询确认才继续 |
+| `bsk daemon start` 死锁 | fork 子进程继承 stdout 管道 | 已改：`-NoOutput` 模式不重定向 |
+| 超时后日志突然刷出 | Kill 后 `ReadToEnd()` 阻塞 | 已改：超时后跳过读输出 |
+| 会话实际成功但报失败 | `$LASTEXITCODE` 来自旧命令 | 已改：解析 JSON session_id |
+| 下班后登录全部失败 | SSO 会话过期，登录被拦截到 portal-hmg | 已改：填凭据前预检 + 登录后重试 |
+| 结果 CSV 有空行 | Export-Csv 遇到空元素 | 已加 Where-Object 过滤 |
+| install-scheduler 报拒绝访问 | 非管理员 | 右键管理员运行 |
 
 ## 跨机器
 
 | 文件 | 策略 |
 |------|------|
 | `config/settings.ps1` | 自动检测 bsk 路径，直接拷贝 |
-| `config/credential.ps1` | 每台电脑独立配置 |
-| `config/scheduler-config.ps1` | 直接拷贝，部署时改执行时间 |
-| `bsk.exe` | 直接拷贝，即拷即用 |
-| `lib/*.ps1` | 直接拷贝 |
-| `logs/` | 按需拷贝 |
+| `config/credential.ps1` | 每台独立配置 |
+| `config/scheduler-config.ps1` | 直接拷贝，改时间 |
+| 其他所有文件 | 直接拷贝 |
