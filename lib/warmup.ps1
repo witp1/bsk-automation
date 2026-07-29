@@ -402,6 +402,7 @@ function Invoke-WarmupPipeline {
             $snap2 = Invoke-BskSnapshot -SessionId $sid
             $btn = Find-ElementByText -Elements $snap2 -Text "登录" -Exact
             if ($btn.Count -gt 0) {
+                Write-Log "[诊断] 找到登录按钮: ref=$($btn[0].Ref) tag=$($btn[0].Tag) text='$($btn[0].Text)' count=$($snap2.Count) refs=$(($snap2 | Measure-Object).Count)"
                 Invoke-BskClick -SessionId $sid -Ref $btn[0].Ref -WaitSec 3
             } else {
                 Write-Log "未找到登录按钮" -Level Error; return
@@ -454,6 +455,10 @@ function Invoke-WarmupPipeline {
                 Write-Log "登录成功" -Level Success
             } else {
                 Write-Log "登录失败，当前 URL: $url" -Level Error
+                # 快照当前页面用于诊断
+                $diagSnap = Invoke-BskSnapshot -SessionId $sid -RawText
+                Write-Log "[诊断] 登录失败时页面内容:"
+                $diagSnap -split "`n" | ForEach-Object { Write-Log "[诊断]   $_" }
                 return
             }
         }
