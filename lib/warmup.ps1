@@ -307,7 +307,6 @@ function Invoke-WarmupPipeline {
     $lockFile = "$env:USERPROFILE\.bsk\daemon.lock"
     if (Test-Path $lockFile) {
         Remove-Item $lockFile -Force -ErrorAction SilentlyContinue
-        Remove-Item "$env:USERPROFILE\.bsk\daemon.lock" -Force -ErrorAction SilentlyContinue
         Write-Log "[诊断] 已清理残留锁文件"
     }
 
