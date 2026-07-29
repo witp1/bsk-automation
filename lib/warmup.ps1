@@ -319,7 +319,7 @@ function Invoke-WarmupPipeline {
         Write-Log "Chrome 未运行，自动启动..."
         try {
             Start-Process "chrome"
-            Start-Sleep -Seconds 5
+            Start-Sleep -Seconds 10
             Write-Log "Chrome 已启动，等待扩展连接..."
         } catch {
             Write-Log "无法启动 Chrome: $_" -Level Error
@@ -346,7 +346,24 @@ function Invoke-WarmupPipeline {
         Start-Sleep -Seconds 1
     }
     if (-not $daemonReady) {
-        Write-Log "daemon 启动失���，终止" -Level Error
+        Write-Log "daemon 第一轮启动无响应，重启 daemon..." -Level Warn
+        Get-Process -Name "bsk" -ErrorAction SilentlyContinue |
+            ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+        Remove-Item $lockFile -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+        Invoke-BskWithTimeout -ArgsList @("daemon","start") -TimeoutMs 10000 -NoOutput | Out-Null
+        for ($i = 0; $i -lt 10; $i++) {
+            $check = Invoke-BskWithTimeout -ArgsList @("status") -TimeoutMs 3000
+            if ($check.Output -match 'daemon version') {
+                $daemonReady = $true
+                Write-Log "daemon 已重启 (等待 ${i}s)"
+                break
+            }
+            Start-Sleep -Seconds 1
+        }
+    }
+    if (-not $daemonReady) {
+        Write-Log "daemon 启动失败，终止" -Level Error
         return
     }
 
