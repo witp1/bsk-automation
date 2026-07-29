@@ -11,12 +11,12 @@ bsk-automation/
 ├── bsk.exe                     # bsk CLI 二进制（项目自带）
 ├── BrowserSkill-0.1.3_0.zip   # browser-skill 扩展离线包
 ├── config/
-│   ├── settings.ps1            # 环境 URL + bsk 路径自动检测
+│   ├── settings.ps1            # ���境 URL + bsk 路径自动检测
 │   ├── credential.ps1          # 账号凭据（每台电脑独立配置）
 │   └── scheduler-config.ps1   # 定时任务配置
 ├── lib/
-│   ├── core.ps1                # bsk 操作封装 + .NET Process 超时
-│   └── warmup.ps1              # 预热核心逻辑
+│   ├── core.ps1                # bsk 操作封装 + .NET Process 超时 + 会话断开检测
+│   └── warmup.ps1              # 预热核心逻辑 + 死锁看门狗
 ├── logs/                       # 执行日志（按次分目录）
 ├── run.bat                     # 调试入口：双击运行
 ├── run.ps1                     # 生产入口（含交互式环境选择菜单）
@@ -28,7 +28,7 @@ bsk-automation/
 
 | 依赖 | 来源 |
 |------|------|
-| Chrome | 必须保持打开（bsk 不启动浏览器，只控制已打开的） |
+| Chrome | 脚本自动启动（无需手动打开） |
 | browser-skill 扩展 | 项目自带离线包 `.zip`，拖拽安装 |
 | bsk.exe | 项目自带 |
 | PowerShell | Windows 自带 |
@@ -45,7 +45,7 @@ bsk-automation/
 
 ```bash
 .\bsk daemon start
-.\bsk status     # 应显示 daemon running + browsers connected 1
+.\bsk status     # 应显示 daemon version + browsers connected 1
 ```
 
 ### 3. 配置凭据
@@ -71,21 +71,21 @@ bsk-automation/
 ## 核心流程
 
 ```
- 0. 杀残留 bsk → 清锁 → 启动 daemon → 轮询确认就绪
- 1. 启动会话 → 等待浏览器连接（60s）
- 2. 导航超管登录页 → 预检 SSO 拦截 → 填凭据 → 点登录
+ 0. 杀残留 bsk → 清锁 → Chrome 兜底启动（轮询进程出现，最多 5s）
+ 1. 启动 daemon → 轮询确认就绪（最多 6 次 / 3s 间隔）
+ 2. 会话启动 → 等待浏览器连接
+ 3. 导航超管登录页 → 预检 SSO 拦截 → 填凭据（JS querySelector + dispatchEvent）
+     → CDP 级点击登录按钮（绕过 Vue 虚拟 DOM handler）
     ├─ 跳转首页 → 继续
     └─ 被 SSO 拦截 → 切回 superLogin 重登一次
- 3. 导航首页 → 点击「报表中心」→ 展开树
- 4. snapshot 抓取 AX 树 → 解析 depth=2 分类 / depth=3 报表
- 5. 注册全局 MutationObserver → 监听 iframe 替换
- 6. 遍历报表（每 1s 轮询，15s 超时）：
-    ├─ 记录当前 iframe src
+ 4. 导航首页 → 点击「报表中心」→ snapshot 抓取 AX 树 → 展开 el-tree
+ 5. 启动死锁看门狗（后台 Job，每 5s 检测 bsk CPU，60s 无变化 → 杀进程退出）
+ 6. 遍历报表（轮询 iframe load 事件，15s 超时）：
     ├─ click 树节点
-    ├─ 等 load 事件 → 三重验证（src 变了 + Tableau URL + title=数据可视化）
-    └─ 15s 超时 → Failed
+    ├─ 等 MutationObserver load 事件 → 三重验证（src 变了 + Tableau URL + title）
+    └─ 检测到会话断开（__SESSION_DEAD__）→ 终止循环
  7. 输出 CSV → logs/
- 8. 退出登录（hover 用户菜单 → 点「退出」）→ 关闭会话
+ 8. 停止看门狗 → 退出登录（当前页面 hover 用户菜单 → 点「退出」）→ 关闭会话
 ```
 
 ### 退出码
@@ -94,7 +94,7 @@ bsk-automation/
 |----|------|
 | 0 | 全部成功 |
 | 1 | 环境错误 / 异常 |
-| 2 | 存在失败报表 |
+| 2 | 存在失败报表（bat 提示 `[WARN]`，非错误） |
 
 ## 定时任务
 
@@ -105,12 +105,14 @@ $WarmupSchedule = @{
     Enabled      = $true       # 开关
     Hour         = 8           # 首次触发小时
     Minute       = 30          # 首次触发分钟
-    ActiveEnd    = 20          # 截止小时（不含），如 20=8:30~19:30 重复
+    ActiveEnd    = 20          # 截止小时（不含），时长自动计算
     RepeatEvery  = 0.5         # 重复间隔（小时；0=不重复）
     Env          = "test"
 }
 $DaemonAutoStart = @{ Enabled = $true }   # daemon 开机自启
 ```
+
+`/st` 直接在配置的 `Hour:Minute` 触发，时长 = `ActiveEnd - Hour:Minute`。
 
 ### 部署（管理员 PowerShell）
 
@@ -119,64 +121,35 @@ cd D:\WorkBuddy\报表预热自动化\bsk-automation
 .\install-scheduler.ps1
 ```
 
-修改配置后重跑即可更新。验证：
-
-```powershell
-schtasks /query /tn "bsk-warmup" /fo list
-```
-
-## 工作前提
-
-三个条件缺一不可：
-- **Chrome 保持打开**（可最小化）
-- **browser-skill 扩展 connected**
-- **daemon 进程在运行（bsk-daemon 开机自启任务负责）**
-
-脚本不会启动 Chrome，所以这台电脑的 Chrome 需要一直开着。
-
-## 关于 bsk.exe
-
-腾讯开源项目 [BrowserSkill](https://github.com/Tencent/BrowserSkill)（MIT，Rust，6MB 单文件）。它把「控制浏览器」变成一组 shell 命令：
-
-```
-脚本 → bsk CLI → IPC → bsk Daemon → WebSocket (127.0.0.1) → 扩展 → CDP → 浏览器
-```
-
-| 命令 | 说明 |
-|------|------|
-| `bsk session start/stop` | 管理浏览器会话 |
-| `bsk navigate <url>` | 导航到 URL |
-| `bsk snapshot` | 抓取 AX 无障碍树 |
-| `bsk click <ref>` | 点击元素 |
-| `bsk evaluate <js>` | 执行 JS |
-| `bsk status` | 查看 daemon + 浏览器状态 |
+修改配置后重跑即可更新。
 
 ## 关键设计决策
 
 | 决策 | 原因 |
 |------|------|
-| `.NET Process.WaitForExit(ms)` + `Kill()` | 任务计划程序下可靠硬超时（非 Start-Job） |
-| `-NoOutput` 模式（daemon start 不重定向 stdout） | daemon fork 子进程继��管道导致 WaitForExit 死锁 |
-| 超时 Kill 后不读 `ReadToEnd()` | 强杀后管道状态不可预测，会永久阻塞 |
-| daemon 启动后轮询 `bsk status` 确认就绪 | named pipe 可能未就绪导致 status 命令卡死 |
-| 填凭据前预检 SSO 拦截 | 下班后 SSO 会话过期直接跳登录页 |
-| JSON 解析 `session_id` 判断成功 | .NET Process 不设 `$LASTEXITCODE` |
-| JS evaluate 填凭据 + dispatchEvent | 绕过 `bsk fill` 不生效，触发 Vue 响应式 |
-| 全局 MutationObserver + src+URL+title 三重验证 | 区分正常报表与假连接/无效页 |
-| `schtasks /du` 实现时间段控制 | Windows 原生，脚本侧不做运行时检查 |
-| 结束前 hover 用户菜单 → 点「退出」 | 退出登录清 SSO 会话，下次全新状态 |
+| Chrome 自动启动（Start-Process "chrome"） | 走注册表 App Paths，无需写死路径 |
+| daemon 启动后轮询确认就绪 | named pipe 可能未就绪 |
+| 登录拆两步：JS 填值 + CDP 点击 | JS 填值免疫 AX 树偏移；CDP 点击绕过 Vue handler |
+| 凭据用 JS 单引号 `'testyure'` | PowerShell `&` 底层会剥掉双引号 |
+| 死锁看门狗（后台 Job 监控 bsk CPU） | Chrome hung 后 60s 自动杀进程退出，下轮定时续跑 |
+| 会话断开检测（`__SESSION_DEAD__`） | 浏览器关闭后不等 15s 逐个超时，直接终止循环 |
+| 退出登录不跳转首页 | 在当前报表页面直接 hover 用户菜单退出 |
+| JS evaluate 填凭据 + dispatchEvent | 绕过 bsk fill 不生效，触发 Vue 响应式 |
+| 全局 MutationObserver + 三重验证 | 区分正常报表与伪加载 |
+| `schtasks /du` 实现时间段控制 | Windows 原生，脚本不做运行时检查 |
+| `$LASTEXITCODE` 污染修复 | `/delete` exit code 不干扰 `/create` 判断 |
 
 ## 常见问题
 
 | 问题 | 原因 | 解决 |
 |------|------|------|
-| `bsk status` 卡死不退 | daemon named pipe 未就绪 | 已改：启动后轮询确认才继续 |
-| `bsk daemon start` 死锁 | fork 子进程继承 stdout 管道 | 已改：`-NoOutput` 模式不重定向 |
-| 超时后日志突然刷出 | Kill 后 `ReadToEnd()` 阻塞 | 已改：超时后跳过读输出 |
-| 会话实际成功但报失败 | `$LASTEXITCODE` 来自旧命令 | 已改：解析 JSON session_id |
-| 下班后登录全部失败 | SSO 会话过期，登录被拦截到 portal-hmg | 已改：填凭据前预检 + 登录后重试 |
-| 结果 CSV 有空行 | Export-Csv 遇到空元素 | 已加 Where-Object 过滤 |
-| install-scheduler 报拒绝访问 | 非管理员 | 右键管理员运行 |
+| 定时任务触发后窗口闪退 | PowerShell 语法错误（here-string / 变量拼写） | 查看最新日志，语法错误不会创建日志目录 |
+| `daemon.json` 缺失导致 daemon 失败 | 脚本误写 `daemon.json` 而非 `daemon.lock` | 已修复，手动 `bsk daemon start` 恢复 |
+| Chrome 打开后仍然卡死 | 连续 220+ 报表高频切换 WebView | 死锁看门狗 60s 自动杀进程退出 |
+| 浏览器关闭后脚本不终止 | evaluate 失败但循环继续 | `__SESSION_DEAD__` 检测 → throw 终止 |
+| 登录被 SSO 拦截（下班后） | SSO 会话过期 | 填凭据前预检 + 登录后自动切回重试 |
+| install-scheduler 报 `Set-ScheduledTask` 拒绝访问 | 非管理员或任务权限冲突 | 不影响 warmup 任务创建，daemon 已有任务无需更新 |
+| install-scheduler 显示 `[!!] warmup task failed` | `$LASTEXITCODE` 被 `/delete` 污染 | 已修复，不影响实际创建结果 |
 
 ## 跨机器
 
