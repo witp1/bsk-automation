@@ -317,6 +317,19 @@ function Invoke-WarmupPipeline {
         return
     }
 
+    # ──── 0.5 确保 Chrome 在运行 ────
+    if (-not (Get-Process chrome -ErrorAction SilentlyContinue)) {
+        Write-Log "Chrome 未运行，自动启动..."
+        $chrome = Get-Command chrome -ErrorAction SilentlyContinue
+        if ($chrome) {
+            Start-Process $chrome.Source
+            Start-Sleep -Seconds 5
+            Write-Log "Chrome 已启动，等待扩展连接..."
+        } else {
+            Write-Log "未找到 Chrome，跳过自动启动" -Level Warn
+        }
+    }
+
     # ──── 1. 启动会话 ────
     $sid = Start-BskSession -BrowserInstanceId $BrowserInstanceId
     if (-not $sid) {
