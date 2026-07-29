@@ -388,28 +388,21 @@ function Invoke-WarmupPipeline {
                 Write-Log "未找到登录按钮" -Level Error; return
             }
 
-            # 验证
+            # 验证（最多重试一次处理 SSO 拦截）
             Write-Log "等待跳转..."
             Start-Sleep -Seconds 5
 
-            $maxLoginRetry = 3
-            $loginOk = $false
-            for ($retry = 0; $retry -lt $maxLoginRetry; $retry++) {
-                $url = Invoke-BskEvaluate -SessionId $sid -Script "window.location.href"
-                if ($url -and $url -notlike "*/superLogin*" -and $url -notlike "*/login*") {
-                    $loginOk = $true
-                    break
-                }
-                if ($url -like "*portal-hmg*" -or $url -like "*sso*") {
-                    Write-Log "检测到 SSO 拦截（第 $($retry+1) 次），切回数据门户重新登录..." -Level Warn
-                    Invoke-BskNavigate -SessionId $sid -Url $LoginUrl[$Env] -WaitSec 2
-                    Start-Sleep -Seconds 2
-                    $snapR = Invoke-BskSnapshot -SessionId $sid
-                    $boxesR = Find-ElementByTag -Elements $snapR -Tag "textbox"
-                    if ($boxesR.Count -ge 2) {
-                        $safeUser = $loginUser -replace "'", "\\'"
-                        $safePass = $loginPass -replace "'", "\\'"
-                        $fillJsR = @"
+            $url = Invoke-BskEvaluate -SessionId $sid -Script "window.location.href"
+            if ($url -like "*portal-hmg*" -or $url -like "*sso*") {
+                Write-Log "检测到 SSO 拦截，切回数据门户重新登录..." -Level Warn
+                # 导航回 superLogin 重新填凭据
+                Invoke-BskNavigate -SessionId $sid -Url $LoginUrl[$Env] -WaitSec 3
+                $snapR = Invoke-BskSnapshot -SessionId $sid
+                $boxesR = Find-ElementByTag -Elements $snapR -Tag "textbox"
+                if ($boxesR.Count -ge 2) {
+                    $safeUser = $loginUser -replace "'", "\\'"
+                    $safePass = $loginPass -replace "'", "\\'"
+                    Invoke-BskEvaluate -SessionId $sid -Script @"
 (function() {
     var inputs = document.querySelectorAll('input');
     var r = {user: false, pass: false};
@@ -418,37 +411,32 @@ function Invoke-WarmupPipeline {
         if (!r.user && (t === 'text' || t === 'email' || t === '')) {
             inputs[i].focus(); inputs[i].value = '$safeUser';
             inputs[i].dispatchEvent(new Event('input', {bubbles:true}));
-            inputs[i].dispatchEvent(new Event('change', {bubbles:true}));
             r.user = true;
         } else if (!r.pass && t === 'password') {
             inputs[i].focus(); inputs[i].value = '$safePass';
             inputs[i].dispatchEvent(new Event('input', {bubbles:true}));
-            inputs[i].dispatchEvent(new Event('change', {bubbles:true}));
             r.pass = true;
         }
     }
     return JSON.stringify(r);
 })();
 "@
-                        Invoke-BskEvaluate -SessionId $sid -Script $fillJsR
-                        Start-Sleep -Seconds 1
-                        $btnR = Find-ElementByText -Elements (Invoke-BskSnapshot -SessionId $sid) -Text "登录" -Exact
-                        if ($btnR.Count -gt 0) {
-                            Invoke-BskClick -SessionId $sid -Ref $btnR[0].Ref -WaitSec 3
-                        }
+                    Start-Sleep -Seconds 1
+                    $btnR = Find-ElementByText -Elements (Invoke-BskSnapshot -SessionId $sid) -Text "登录" -Exact
+                    if ($btnR.Count -gt 0) {
+                        Invoke-BskClick -SessionId $sid -Ref $btnR[0].Ref -WaitSec 3
                     }
-                    Start-Sleep -Seconds 5
-                } else {
-                    Write-Log "登录后 URL 未跳转到首页，终止" -Level Error
-                    return
                 }
+                Start-Sleep -Seconds 5
+                $url = Invoke-BskEvaluate -SessionId $sid -Script "window.location.href"
             }
 
-            if (-not $loginOk) {
-                Write-Log "多次登录重试均失败，终止" -Level Error
+            if ($url -and $url -notlike "*/superLogin*" -and $url -notlike "*/login*") {
+                Write-Log "登录成功" -Level Success
+            } else {
+                Write-Log "登录失败，当前 URL: $url" -Level Error
                 return
             }
-            Write-Log "登录成功" -Level Success
         }
 
         # ──── 3. 点击「报表中心」导航项（已自动跳转到首页）────
