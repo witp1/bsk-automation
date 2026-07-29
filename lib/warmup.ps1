@@ -557,13 +557,24 @@ window.__bskObserver.observe(document.body, {childList: true, subtree: true});
         Write-Log "[异常] $_" -Level Error
         Write-Log "[堆栈] $($_.ScriptStackTrace)" -Level Error
     } finally {
-        # 退出登录（清理本地存储，解除登录态）
+        # 退出登录
         try {
-            Invoke-BskEvaluate -SessionId $sid -Script "localStorage.clear(); sessionStorage.clear();" | Out-Null
+            Write-Log "退出登录..."
+            Invoke-BskNavigate -SessionId $sid -Url $PortalHome[$Env] -WaitSec 3
+            $logoutSnap = Invoke-BskSnapshot -SessionId $sid
+            $logoutBtn = Find-ElementByText -Elements $logoutSnap -Text "退出"
+            if ($logoutBtn.Count -gt 0) {
+                Invoke-BskClick -SessionId $sid -Ref $logoutBtn[0].Ref -WaitSec 2
+            } else {
+                # 兜底：尝试直接走登出 URL
+                $baseUrl = ($PortalHome[$Env] -replace '/homepage','')
+                Invoke-BskNavigate -SessionId $sid -Url "$baseUrl/logout" -WaitSec 3
+            }
             Write-Log "已退出登录"
         } catch {
             Write-Log "退出登录失败: $_" -Level Warn
         }
+        # 关闭浏览器会话
         Stop-BskSession -SessionId $sid
         Write-Log "流程结束"
     }
