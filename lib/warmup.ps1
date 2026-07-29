@@ -277,10 +277,10 @@ function Invoke-WarmupPipeline {
     if ($ResumeFrom)   { Write-Log "断点恢复: $ResumeFrom" }
     if ($ReportFilter) { Write-Log "过滤: $ReportFilter" }
 
-    # ──── 时间段检查：23:00-07:00 跳过执行 ────
+    # ──── 时间段检查 ────
     $nowHour = (Get-Date).Hour
-    $activeStart = 7
-    $activeEnd   = 23
+    $activeStart = if ($WarmupSchedule.ContainsKey('ActiveStart')) { $WarmupSchedule.ActiveStart } else { 8 }
+    $activeEnd   = if ($WarmupSchedule.ContainsKey('ActiveEnd'))   { $WarmupSchedule.ActiveEnd   } else { 20 }
     if ($nowHour -ge $activeEnd -or $nowHour -lt $activeStart) {
         Write-Log "当前时间 $nowHour:00 不在可执行时段（${activeStart}:00-${activeEnd}:00），跳过"
         return
