@@ -325,9 +325,10 @@ function Invoke-WarmupPipeline {
     # ──── 0. 确保 daemon 在运行 ────
     Write-Log "清理残留 daemon 并重启..."
 
-    # 杀掉所有残留 bsk 进程（不限路径，避免僵尸进程持有 named pipe）
+    # 杀掉所有残留 bsk 进程（cmd taskkill 兜底，确保 daemon 子进程也杀掉）
     Get-Process -Name "bsk" -ErrorAction SilentlyContinue |
         ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+    cmd /c "taskkill /f /im bsk.exe 2>nul"
     Write-Log "[诊断] 已杀残留 bsk 进程"
 
     # 清理锁文件和旧 daemon 状态文件（避免新 daemon 读到旧 socket path）
@@ -371,7 +372,11 @@ function Invoke-WarmupPipeline {
         Start-Sleep -Seconds 1
     }
     if (-not $daemonReady) {
-        Write-Log "daemon 启动失败，终止" -Level Error
+        Write-Log "daemon 启动失���，清理残留并终止" -Level Error
+        Get-Process -Name "bsk" -ErrorAction SilentlyContinue |
+            ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+        # cmd 兜底：杀干净所有 bsk 进程
+        cmd /c "taskkill /f /im bsk.exe 2>nul"
         return
     }
 
