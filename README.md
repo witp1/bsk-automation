@@ -158,5 +158,5 @@ cd D:\WorkBuddy\报表预热自动化\bsk-automation
 |------|------|
 | `config/settings.ps1` | 自动检测 bsk 路径，`$Diagnostic` 默认关闭，直接拷贝 |
 | `config/credential.ps1` | 每台独立配置 |
-| `config/scheduler-config.ps1` | 直接拷贝���改时间 |
+| `config/scheduler-config.ps1` | 直接拷贝，修改触发时间 |
 | 其他所有文件 | 直接拷贝 |
