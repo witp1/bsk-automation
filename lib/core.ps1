@@ -92,14 +92,6 @@ function Write-Log {
 # ──── 会话管理 ────
 
 function Start-BskSession {
-    <#
-    .SYNOPSIS
-        启动一个新的 bsk 浏览器会话，返回 session_id 字符串
-    .PARAMETER BrowserInstanceId
-        目标浏览器实例 ID（可选，默认用唯一连接的浏览器）
-    #>
-    param([string]$BrowserInstanceId = "")
-
     Write-Log "启动 bsk 会话..."
 
     # 第一轮：直接尝试（扩展可能已连接）

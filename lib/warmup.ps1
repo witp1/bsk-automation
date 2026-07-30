@@ -343,7 +343,7 @@ function Invoke-WarmupPipeline {
     }
 
     # ──── 1. 启动会话 ────
-    $sid = Start-BskSession -BrowserInstanceId $BrowserInstanceId
+    $sid = Start-BskSession
     if (-not $sid) {
         Write-Log "会话启动失败，终止" -Level Error
         return
@@ -436,7 +436,7 @@ function Invoke-WarmupPipeline {
                 Stop-BskSession -SessionId $sid -ErrorAction SilentlyContinue
                 if ($loginAttempt -eq 0) {
                     Write-Log "降级：bsk fill 失败，尝试 JS fill..."
-                    $sid = Start-BskSession -BrowserInstanceId $BrowserInstanceId
+                    $sid = Start-BskSession
                     if (-not $sid) { Write-Log "会话重建失败" -Level Error; break }
                     Invoke-BskNavigate -SessionId $sid -Url $LoginUrl[$Env] -WaitSec 5
                 } elseif ($loginAttempt -eq 1) {
@@ -455,7 +455,7 @@ function Invoke-WarmupPipeline {
                         Start-Sleep -Seconds 1
                     }
                     Start-Sleep -Seconds 5
-                    $sid = Start-BskSession -BrowserInstanceId $BrowserInstanceId
+                    $sid = Start-BskSession
                     if (-not $sid) { Write-Log "全栈重启后会话失败" -Level Error; break }
                     Invoke-BskNavigate -SessionId $sid -Url $LoginUrl[$Env] -WaitSec 5
                 }
