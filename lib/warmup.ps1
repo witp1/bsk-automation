@@ -321,21 +321,17 @@ function Invoke-WarmupPipeline {
         Remove-Item $stateFile -Force -ErrorAction SilentlyContinue
     }
 
-    # 确保 Chrome 在运行（Start-Process 走 ShellExecute → 注册表 App Paths）
-    if (-not (Get-Process chrome -ErrorAction SilentlyContinue)) {
-        Write-Log "Chrome 未运行，自动启动..."
-        try {
-            Start-Process "chrome"
-            # 轮询等 Chrome 进程出现，最多 5s
-            for ($i = 0; $i -lt 5; $i++) {
-                if (Get-Process chrome -ErrorAction SilentlyContinue) { break }
-                Start-Sleep -Seconds 1
-            }
-            Write-Log "Chrome 已启动"
-        } catch {
-            Write-Log "无法启动 Chrome: $_" -Level Error
-        }
+    # 强制重启 Chrome（锁屏后渲染状态已脏，必须全新实例）
+    Get-Process -Name "chrome" -ErrorAction SilentlyContinue |
+        ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+    Start-Sleep -Seconds 2
+    Write-Log "重启 Chrome..."
+    Start-Process "chrome"
+    for ($i = 0; $i -lt 5; $i++) {
+        if (Get-Process chrome -ErrorAction SilentlyContinue) { break }
+        Start-Sleep -Seconds 1
     }
+    Write-Log "Chrome 已启动"
 
     # 启动 daemon（-NoOutput：daemon fork 子进程会继承管道导致 WaitForExit 死锁）
     Invoke-BskWithTimeout -ArgsList @("daemon","start") -TimeoutMs 10000 -NoOutput | Out-Null
