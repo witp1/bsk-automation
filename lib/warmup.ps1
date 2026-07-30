@@ -421,21 +421,22 @@ function Invoke-WarmupPipeline {
                 Invoke-BskNavigate -SessionId $sid -Url $LoginUrl[$Env] -WaitSec 3
             }
 
-            # 一次性 JS 完成：定位输入框 → 填值 → 触发 Vue 事件
-            $js = $script:fillAndLoginJs.Replace('__USER__', $loginUser).Replace('__PASS__', $loginPass)
-            $fillRes = Invoke-BskEvaluate -SessionId $sid -Script $js
-            Write-Log "[诊断] 填值结果: $fillRes"
-            Start-Sleep -Seconds 1
-
-            # CDP 级点击登录按钮（Vue handler 不响应 JS 层 click/MouseEvent）
+            # snapshot → 找 input 和 button → bsk fill → bsk click
             $snap2 = Invoke-BskSnapshot -SessionId $sid
-            $btn = Find-ElementByText -Elements $snap2 -Text "登录" -Exact
-            if ($btn.Count -gt 0) {
-                Write-Log "点击登录按钮: ref=$($btn[0].Ref)"
-                Invoke-BskClick -SessionId $sid -Ref $btn[0].Ref -WaitSec 3
-            } else {
-                Write-Log "未找到登录按钮" -Level Error; return
+            $userInp = Find-ElementByText -Elements $snap2 -Text "请输入用户名"
+            $passInp = Find-ElementByText -Elements $snap2 -Text "请输入密码"
+            $btn     = Find-ElementByText -Elements $snap2 -Text "登录" -Exact
+
+            if ($userInp.Count -eq 0 -or $passInp.Count -eq 0 -or $btn.Count -eq 0) {
+                Write-Log "未找到登录表单元素" -Level Error; return
             }
+
+            # bsk fill 通过 CDP 模拟键盘输入，触发框架内部状态
+            Write-Log "填充凭据..."
+            Invoke-BskWithTimeout -ArgsList @("fill","--session",$sid,$userInp[0].Ref,$loginUser) -TimeoutMs 5000 | Out-Null
+            Invoke-BskWithTimeout -ArgsList @("fill","--session",$sid,$passInp[0].Ref,$loginPass) -TimeoutMs 5000 | Out-Null
+            Write-Log "点击登录..."
+            Invoke-BskClick -SessionId $sid -Ref $btn[0].Ref -WaitSec 3
 
             # 诊断: 点按钮后立刻检查页面状态
             Start-Sleep -Seconds 1
@@ -464,15 +465,14 @@ function Invoke-WarmupPipeline {
             $url = Invoke-BskEvaluate -SessionId $sid -Script "window.location.href"
             if ($url -like "*portal-hmg*" -or $url -like "*sso*") {
                 Write-Log "检测到 SSO 拦截，切回数据门户重新登录..." -Level Warn
-                # 复用同一个 JS 重新填凭据 → bsk click 登录按钮
                 Invoke-BskNavigate -SessionId $sid -Url $LoginUrl[$Env] -WaitSec 3
-                Invoke-BskEvaluate -SessionId $sid -Script $js | Out-Null
-                Start-Sleep -Seconds 1
                 $snapR = Invoke-BskSnapshot -SessionId $sid
                 $btnR = Find-ElementByText -Elements $snapR -Text "登录" -Exact
-                if ($btnR.Count -gt 0) {
-                    Invoke-BskClick -SessionId $sid -Ref $btnR[0].Ref -WaitSec 3
-                }
+                $uR   = Find-ElementByText -Elements $snapR -Text "请输入用户名"
+                $pR   = Find-ElementByText -Elements $snapR -Text "请输入密码"
+                if ($uR.Count -gt 0) { Invoke-BskWithTimeout -ArgsList @("fill","--session",$sid,$uR[0].Ref,$loginUser) -TimeoutMs 5000 | Out-Null }
+                if ($pR.Count -gt 0) { Invoke-BskWithTimeout -ArgsList @("fill","--session",$sid,$pR[0].Ref,$loginPass) -TimeoutMs 5000 | Out-Null }
+                if ($btnR.Count -gt 0) { Invoke-BskClick -SessionId $sid -Ref $btnR[0].Ref -WaitSec 3 }
                 Start-Sleep -Seconds 5
                 $url = Invoke-BskEvaluate -SessionId $sid -Script "window.location.href"
             }
