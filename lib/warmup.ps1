@@ -235,48 +235,6 @@ function Invoke-ReportWarmup {
     }
 }
 
-# 共享：登录页 JS 模板（按 {0}/{1} 填用户名密码）
-# 用 querySelector 直接定位输入框和按钮，避开 AX ref 顺序漂移问题
-$script:fillAndLoginJs = @'
-(function() {
-    var u = document.querySelector('input[type="text"], input:not([type="password"])');
-    var p = document.querySelector('input[type="password"]');
-    if (!u || !p) return JSON.stringify({ok:false, msg:'no-inputs'});
-    var user = '__USER__', pass = '__PASS__';
-
-    // === 诊断: 填值前状态 ===
-    var before = {
-        u_val: u.value, p_val: p.value,
-        u_readonly: u.readOnly, p_readonly: p.readOnly,
-        u_disabled: u.disabled, p_disabled: p.disabled,
-        vue_root: !!document.querySelector('[data-v-]'),
-        readyState: document.readyState,
-        form_count: document.querySelectorAll('form').length
-    };
-
-    // 用原生 value setter 触发 Vue v-model
-    var setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
-    setter.call(u, '');
-    setter.call(u, user);
-    u.dispatchEvent(new Event('input',{bubbles:true,composed:true}));
-    u.dispatchEvent(new Event('change',{bubbles:true,composed:true}));
-    setter.call(p, '');
-    setter.call(p, pass);
-    p.dispatchEvent(new Event('input',{bubbles:true,composed:true}));
-    p.dispatchEvent(new Event('change',{bubbles:true,composed:true}));
-
-    // === 诊断: 填值后立即读回 ===
-    var after = {
-        u_val: u.value, p_val: p.value,
-        u_hasVal: u.value === user, p_hasVal: p.value === pass,
-        errors_visible: Array.from(document.querySelectorAll('.v-messages__message,.el-form-item__error,[class*=error-msg]'))
-            .map(function(e){return e.innerText}).join('|') || 'none'
-    };
-
-    return JSON.stringify({ok:true, diagnostic:{before:before, after:after}});
-})()
-'@
-
 # ──── 完整预热管道 ────
 
 function Invoke-WarmupPipeline {
@@ -437,26 +395,6 @@ function Invoke-WarmupPipeline {
             Invoke-BskWithTimeout -ArgsList @("fill","--session",$sid,$passInp[0].Ref,$loginPass) -TimeoutMs 5000 | Out-Null
             Write-Log "点击登录..."
             Invoke-BskClick -SessionId $sid -Ref $btn[0].Ref -WaitSec 3
-
-            # 诊断: 点按钮后立刻检查页面状态
-            Start-Sleep -Seconds 1
-            $diagJs = @'
-(function() {
-    var errs = Array.from(document.querySelectorAll('.v-messages__message,.el-form-item__error,[class*="err"]'))
-        .map(function(e){return e.innerText}).join('|') || 'none';
-    var u2 = document.querySelector('input[type="text"], input:not([type="password"])');
-    var p2 = document.querySelector('input[type="password"]');
-    return JSON.stringify({
-        url: window.location.href,
-        errors: errs,
-        u_val: u2 ? u2.value : 'null',
-        p_val: p2 ? (p2.value ? '***' : 'empty') : 'null',
-        btn_text: document.querySelector('button')?.innerText || 'none'
-    });
-})()
-'@
-            $diagRes = Invoke-BskEvaluate -SessionId $sid -Script $diagJs
-            Write-Log "[诊断] 点击后页面状态: $diagRes"
 
             # 验证（最多重试一次处理 SSO 拦截）
             Write-Log "等待跳转..."
