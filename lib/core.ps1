@@ -103,7 +103,7 @@ function Start-BskSession {
     Write-Log "启动 bsk 会话..."
 
     # 第一轮：直接尝试（扩展可能已连接）
-    for ($w = 0; $w -lt 4; $w++) {
+    for ($w = 0; $w -lt 1; $w++) {
         $sr = Invoke-BskWithTimeout -ArgsList @("session","start","--json") -TimeoutMs 30000
         if (-not $sr.TimedOut -and $sr.Output) {
             try {
@@ -132,7 +132,7 @@ function Start-BskSession {
     Start-Sleep -Seconds 8
 
     # 第二轮：重试
-    for ($w = 0; $w -lt 8; $w++) {
+    for ($w = 0; $w -lt 4; $w++) {
         $sr = Invoke-BskWithTimeout -ArgsList @("session","start","--json") -TimeoutMs 30000
         if (-not $sr.TimedOut -and $sr.Output) {
             try {
