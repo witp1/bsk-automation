@@ -84,7 +84,7 @@ bsk-automation/
  5. 启动死锁看门狗（后台 Job，每 5s 检测 bsk CPU，60s 无变化 → 杀进程）
  6. 遍历报表（轮询 iframe load 事件，15s 超时）
  7. 输出 CSV → logs/
- 8. finally: 杀 daemon → 退出登录 → 停止会话
+ 8. finally: daemon 保持运行（下次复用），退出登录 → 流程结束
 ```
 
 ### 退出码
@@ -129,7 +129,9 @@ cd D:\WorkBuddy\报表预热自动化\bsk-automation
 | 登录三级降级（bsk fill / JS fill / 全栈重启） | 锁屏后 CDP 渲染异常，逐级降级保证登录成功 |
 | bsk fill 填表单 | CDP 级键盘输入，触发框架内部 state（优于 JS evaluate） |
 | session start 失败自动重启 Chrome | 锁屏后扩展断连，重启 Chrome 强制扩展重连 |
-| finally 块第一行杀 daemon | 避免后续 bsk evaluate/stop 等命令挂死在死 pipe 上 |
+| daemon 生命周期：只启不杀，下次复用 | 避免定时任务 SYSTEM 权限无法杀用户进程导致的卡死 |
+| `$Diagnostic` 开关（`config/settings.ps1`） | 默认关闭，开启后打印填值验证/树扫描/AX dump 等详细日志 |
+| 提取 `Kill-BskProcesses` / `Wait-ChromeReady` | 消除 3 处重复的杀进程和 Chrome 等待模式 |
 | 启动时杀残留 bsk + 删 daemon.lock + daemon.json | 旧 daemon 子进程可能残存，端口冲突导致新 daemon 失败 |
 | 死锁看门狗 | Chrome hung 后 60s 自动杀进程退出，下轮定时续跑 |
 | 会话断开检测（`__SESSION_DEAD__`） | 浏览器关闭后不等 15s 逐个超时 |
@@ -147,12 +149,13 @@ cd D:\WorkBuddy\报表预热自动化\bsk-automation
 | 首次部署定时任务显示 `[!!] failed` | `$LASTEXITCODE` 被 `/delete` 污染 | 不影响实际创建，可用 schtasks /query 验证 |
 | daemon 反复启动失败 | 残留 daemon 进程占用 52800 端口 | 管理员 CMD: `taskkill /f /im bsk.exe`，再跑脚本 |
 | Chrome 打开后预热卡死 | 连续 220+ 报表高频切换 | 死锁看门狗 60s 自动杀进程退出 |
+| 需要详细诊断日志 | 默认关闭，减少日志噪音 | `config/settings.ps1` 设 `$Diagnostic = $true` |
 
 ## 跨机器
 
 | 文件 | 策略 |
 |------|------|
-| `config/settings.ps1` | 自动检测 bsk 路径，直接拷贝 |
+| `config/settings.ps1` | 自动检测 bsk 路径，`$Diagnostic` 默认关闭，直接拷贝 |
 | `config/credential.ps1` | 每台独立配置 |
 | `config/scheduler-config.ps1` | 直接拷贝���改时间 |
 | 其他所有文件 | 直接拷贝 |
