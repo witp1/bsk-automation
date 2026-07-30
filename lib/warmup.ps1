@@ -330,14 +330,11 @@ function Invoke-WarmupPipeline {
     $daemonRunning = $false
 
     # 检查已有 daemon 是否活着（避免杀 daemon 导致扩展断连）
-    if (Test-Path $stateFile) {
-        try {
-            $daemonPid = (Get-Content $stateFile -Raw | ConvertFrom-Json).pid
-            if (Get-Process -Id $daemonPid -ErrorAction SilentlyContinue) {
-                $daemonRunning = $true
-                Write-Log "daemon 已在运行 (PID: $daemonPid)，复用"
-            }
-        } catch {}
+    # 只要有 bsk 进程在跑，就认为 daemon 可用——daemon.json 可能被删但进程还活着
+    $bskProcs = Get-Process -Name "bsk" -ErrorAction SilentlyContinue
+    if ($bskProcs) {
+        $daemonRunning = $true
+        Write-Log "daemon 已在运行 (PID: $($bskProcs[0].Id))，复用"
     }
 
     if (-not $daemonRunning) {
