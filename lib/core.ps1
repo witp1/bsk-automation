@@ -102,26 +102,52 @@ function Start-BskSession {
 
     Write-Log "启动 bsk 会话..."
 
-    # 直接试 session start（跳过 bsk status，pipe 连接不可靠）
+    # 第一轮：直接尝试（扩展可能已连接）
     for ($w = 0; $w -lt 4; $w++) {
-        $argsList = @("session", "start", "--json")
-        if ($BrowserInstanceId) { $argsList += @("--browser", $BrowserInstanceId) }
-        $sr = Invoke-BskWithTimeout -ArgsList $argsList -TimeoutMs 30000
+        $sr = Invoke-BskWithTimeout -ArgsList @("session","start","--json") -TimeoutMs 30000
         if (-not $sr.TimedOut -and $sr.Output) {
-            Write-Log "[诊断] session start 返回: $($sr.Output)"
             try {
                 $parsed = $sr.Output | ConvertFrom-Json
                 $sid = $parsed.session_id
                 if ($sid) {
-                    Write-Log "会话启动成功, ID: $sid (等待 ${w}s)" -Level Success
+                    Write-Log "session start 成功, ID: $sid" -Level Success
                     return $sid
                 }
             } catch {}
         }
-        Write-Log "等待 Chrome 扩展连接... ($([int]($w+1))/4)"
         Start-Sleep -Seconds 2
     }
-    Write-Log "会话启动失败，请确认 Chrome 已开启且扩展处于 connected 状态" -Level Error
+
+    # 第一轮失败 → 重启 Chrome 强制扩展重连
+    Write-Log "重启 Chrome..." -Level Warn
+    Get-Process -Name "chrome" -ErrorAction SilentlyContinue |
+        ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+    Start-Sleep -Seconds 3
+    Start-Process "chrome"
+    for ($i = 0; $i -lt 10; $i++) {
+        if (Get-Process chrome -ErrorAction SilentlyContinue) { break }
+        Start-Sleep -Seconds 1
+    }
+    Write-Log "Chrome 已重启，等待扩展..."
+    Start-Sleep -Seconds 8
+
+    # 第二轮：重试
+    for ($w = 0; $w -lt 8; $w++) {
+        $sr = Invoke-BskWithTimeout -ArgsList @("session","start","--json") -TimeoutMs 30000
+        if (-not $sr.TimedOut -and $sr.Output) {
+            try {
+                $parsed = $sr.Output | ConvertFrom-Json
+                $sid = $parsed.session_id
+                if ($sid) {
+                    Write-Log "session start 成功, ID: $sid" -Level Success
+                    return $sid
+                }
+            } catch {}
+        }
+        Start-Sleep -Seconds 2
+    }
+
+    Write-Log "session start 失败，扩展未连接" -Level Error
     return ""
 }
 
