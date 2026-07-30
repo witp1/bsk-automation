@@ -405,7 +405,7 @@ function Invoke-WarmupPipeline {
                 # 验证填值
                 $fillCheckU = Invoke-BskEvaluate -SessionId $sid -Script "(function(){var u=document.querySelector('input[type=text],input:not([type=password])');return u?u.value:'no-input';})()"
                 $fillCheckP = Invoke-BskEvaluate -SessionId $sid -Script "(function(){var p=document.querySelector('input[type=password]');return p?p.value:'no-input';})()"
-                Write-Log "[诊断] 填值: user='$fillCheckU' pass_len=$($fillCheckP.Length)"
+                Write-Log "[诊断] 填值: user='$fillCheckU' pass_ok=$($fillCheckP.Length -gt 0)"
 
                 if ($fillCheckU -ne "" -and $fillCheckU -ne "no-input" -and $fillCheckP.Length -gt 0) {
                     Write-Log "点击登录..."
@@ -440,11 +440,10 @@ function Invoke-WarmupPipeline {
                 Stop-BskSession -SessionId $sid -ErrorAction SilentlyContinue
                 if ($loginAttempt -eq 0) {
                     Write-Log "降级：bsk fill 失败，尝试 JS fill..."
-                    Invoke-BskNavigate -SessionId $sid -Url $LoginUrl[$Env] -WaitSec 3
                     $sid = Start-BskSession -BrowserInstanceId $BrowserInstanceId
                     if (-not $sid) { Write-Log "会话重建失败" -Level Error; break }
                     Invoke-BskNavigate -SessionId $sid -Url $LoginUrl[$Env] -WaitSec 5
-                } else {
+                } elseif ($loginAttempt -eq 1) {
                     Write-Log "全栈重启：杀 daemon + Chrome..."
                     Get-Process -Name "bsk" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
                     cmd /c "taskkill /f /im bsk.exe 2>nul"
@@ -658,7 +657,6 @@ window.__bskObserver.observe(document.body, {childList: true, subtree: true});
         } catch {
             Write-Log "退出登录失败: $_" -Level Warn
         }
-        Stop-BskSession -SessionId $sid
         Write-Log "流程结束"
     }
 }
