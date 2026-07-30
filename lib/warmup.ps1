@@ -646,6 +646,7 @@ window.__bskObserver.observe(document.body, {childList: true, subtree: true});
         } catch {
             Write-Log "退出登录失败: $_" -Level Warn
         }
+        Invoke-BskNavigate -SessionId $sid -Url "about:blank" -WaitSec 1 -ErrorAction SilentlyContinue
         Write-Log "流程结束"
     }
 }
