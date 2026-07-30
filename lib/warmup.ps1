@@ -243,17 +243,37 @@ $script:fillAndLoginJs = @'
     var p = document.querySelector('input[type="password"]');
     if (!u || !p) return JSON.stringify({ok:false, msg:'no-inputs'});
     var user = '__USER__', pass = '__PASS__';
-    // 用原生 value setter 触发 Vue v-model（.value= + dispatchEvent 有时竞态失效）
+
+    // === 诊断: 填值前状态 ===
+    var before = {
+        u_val: u.value, p_val: p.value,
+        u_readonly: u.readOnly, p_readonly: p.readOnly,
+        u_disabled: u.disabled, p_disabled: p.disabled,
+        vue_root: !!document.querySelector('[data-v-]'),
+        readyState: document.readyState,
+        form_count: document.querySelectorAll('form').length
+    };
+
+    // 用原生 value setter 触发 Vue v-model
     var setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
     setter.call(u, '');
     setter.call(u, user);
-    u.dispatchEvent(new Event('input',{bubbles:true}));
-    u.dispatchEvent(new Event('change',{bubbles:true}));
+    u.dispatchEvent(new Event('input',{bubbles:true,composed:true}));
+    u.dispatchEvent(new Event('change',{bubbles:true,composed:true}));
     setter.call(p, '');
     setter.call(p, pass);
-    p.dispatchEvent(new Event('input',{bubbles:true}));
-    p.dispatchEvent(new Event('change',{bubbles:true}));
-    return JSON.stringify({ok:true, msg:'filled'});
+    p.dispatchEvent(new Event('input',{bubbles:true,composed:true}));
+    p.dispatchEvent(new Event('change',{bubbles:true,composed:true}));
+
+    // === 诊断: 填值后立即读回 ===
+    var after = {
+        u_val: u.value, p_val: p.value,
+        u_hasVal: u.value === user, p_hasVal: p.value === pass,
+        errors_visible: Array.from(document.querySelectorAll('.v-messages__message,.el-form-item__error,[class*=error-msg]'))
+            .map(function(e){return e.innerText}).join('|') || 'none'
+    };
+
+    return JSON.stringify({ok:true, diagnostic:{before:before, after:after}});
 })()
 '@
 
@@ -387,9 +407,8 @@ function Invoke-WarmupPipeline {
 
             # 一次性 JS 完成：定位输入框 → 填值 → 触发 Vue 事件
             $js = $script:fillAndLoginJs.Replace('__USER__', $loginUser).Replace('__PASS__', $loginPass)
-            Write-Log "[诊断] 发送给浏览器的 JS: $js"
             $fillRes = Invoke-BskEvaluate -SessionId $sid -Script $js
-            Write-Log "登录提交结果: $fillRes"
+            Write-Log "[诊断] 填值结果: $fillRes"
             Start-Sleep -Seconds 1
 
             # CDP 级点击登录按钮（Vue handler 不响应 JS 层 click/MouseEvent）
@@ -401,6 +420,26 @@ function Invoke-WarmupPipeline {
             } else {
                 Write-Log "未找到登录按钮" -Level Error; return
             }
+
+            # 诊断: 点按钮后立刻检查页面状态
+            Start-Sleep -Seconds 1
+            $diagJs = @'
+(function() {
+    var errs = Array.from(document.querySelectorAll('.v-messages__message,.el-form-item__error,[class*="err"]'))
+        .map(function(e){return e.innerText}).join('|') || 'none';
+    var u2 = document.querySelector('input[type="text"], input:not([type="password"])');
+    var p2 = document.querySelector('input[type="password"]');
+    return JSON.stringify({
+        url: window.location.href,
+        errors: errs,
+        u_val: u2 ? u2.value : 'null',
+        p_val: p2 ? (p2.value ? '***' : 'empty') : 'null',
+        btn_text: document.querySelector('button')?.innerText || 'none'
+    });
+})()
+'@
+            $diagRes = Invoke-BskEvaluate -SessionId $sid -Script $diagJs
+            Write-Log "[诊断] 点击后页面状态: $diagRes"
 
             # 验证（最多重试一次处理 SSO 拦截）
             Write-Log "等待跳转..."
