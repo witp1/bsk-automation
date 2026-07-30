@@ -359,16 +359,17 @@ function Invoke-WarmupPipeline {
 
     # 启动 daemon（-NoOutput：daemon fork 子进程会继承管道导致 WaitForExit 死锁）
     Invoke-BskWithTimeout -ArgsList @("daemon","start") -TimeoutMs 10000 -NoOutput | Out-Null
-    # pipe 创建有微小窗口期，固定等 2s 再开始轮询
+    # 等 daemon 写入 daemon.json（不再依赖 bsk status，pipe 连接有间歇性故障）
     Start-Sleep -Seconds 2
+    $stateFile = "$env:USERPROFILE\.bsk\daemon.json"
     $daemonReady = $false
     for ($i = 0; $i -lt 6; $i++) {
-        $check = Invoke-BskWithTimeout -ArgsList @("status") -TimeoutMs 3000
-        if ($check.Output -match 'daemon version') {
+        if ((Test-Path $stateFile) -and ((Get-Item $stateFile).Length -gt 0)) {
             $daemonReady = $true
             Write-Log "daemon 已启动 (等待 ${i}s)"
             break
         }
+        Write-Log "等待 daemon.json... ($([int]($i+1))/6)"
         Start-Sleep -Seconds 1
     }
     if (-not $daemonReady) {
