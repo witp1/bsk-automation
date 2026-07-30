@@ -243,10 +243,14 @@ $script:fillAndLoginJs = @'
     var p = document.querySelector('input[type="password"]');
     if (!u || !p) return JSON.stringify({ok:false, msg:'no-inputs'});
     var user = '__USER__', pass = '__PASS__';
-    u.value = ''; u.value = user;
+    // 用原生 value setter 触发 Vue v-model（.value= + dispatchEvent 有时竞态失效）
+    var setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    setter.call(u, '');
+    setter.call(u, user);
     u.dispatchEvent(new Event('input',{bubbles:true}));
     u.dispatchEvent(new Event('change',{bubbles:true}));
-    p.value = ''; p.value = pass;
+    setter.call(p, '');
+    setter.call(p, pass);
     p.dispatchEvent(new Event('input',{bubbles:true}));
     p.dispatchEvent(new Event('change',{bubbles:true}));
     return JSON.stringify({ok:true, msg:'filled'});
