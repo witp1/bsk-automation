@@ -658,6 +658,10 @@ window.__bskObserver.observe(document.body, {childList: true, subtree: true});
             Write-Log "退出登录失败: $_" -Level Warn
         }
         Stop-BskSession -SessionId $sid
+        # 杀 daemon 进程，避免僵尸进程占用端口
+        Get-Process -Name "bsk" -ErrorAction SilentlyContinue |
+            ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+        cmd /c "taskkill /f /im bsk.exe 2>nul"
         Write-Log "流程结束"
     }
 }
