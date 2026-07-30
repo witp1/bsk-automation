@@ -323,45 +323,54 @@ function Invoke-WarmupPipeline {
     if ($ReportFilter) { Write-Log "过滤: $ReportFilter" }
 
     # ──── 0. 确保 daemon 在运行 ────
-    Write-Log "清理残留 daemon 并重启..."
+    Write-Log "检查 daemon 状态..."
 
-    # 杀掉所有残留 bsk 进程（包括僵尸——不杀会导致新 daemon 端口被占）
-    Get-Process -Name "bsk" -ErrorAction SilentlyContinue |
-        ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
-    cmd /c "taskkill /f /im bsk.exe 2>nul"
-    Write-Log "[诊断] 已杀残留 bsk 进程"
-
-    # 清理锁文件和旧 daemon 状态文件
     $lockFile = "$env:USERPROFILE\.bsk\daemon.lock"
     $stateFile = "$env:USERPROFILE\.bsk\daemon.json"
-    if (Test-Path $lockFile) {
-        Remove-Item $lockFile -Force -ErrorAction SilentlyContinue
-        Write-Log "[诊断] 已清理残留锁文件"
-    }
-    if (Test-Path $stateFile) {
-        Remove-Item $stateFile -Force -ErrorAction SilentlyContinue
-    }
-
-    # 等系统释放端口/进程
-    Start-Sleep -Seconds 2
-
-    # 启动 daemon
-    Invoke-BskWithTimeout -ArgsList @("daemon","start") -TimeoutMs 10000 -NoOutput | Out-Null
-    Start-Sleep -Seconds 2
     $daemonRunning = $false
-    for ($i = 0; $i -lt 6; $i++) {
-        if ((Test-Path $stateFile) -and ((Get-Item $stateFile).Length -gt 0)) {
+
+    # 检查已有 daemon 是否活着且 pipe 可用（不杀健康 daemon，避免扩展断连）
+    $bskProcs = Get-Process -Name "bsk" -ErrorAction SilentlyContinue
+    if ($bskProcs) {
+        $testSid = Invoke-BskWithTimeout -ArgsList @("session","start","--json") -TimeoutMs 5000
+        if (-not $testSid.TimedOut -and $testSid.Output -and $testSid.Output -notmatch '"exit_code":\s*2') {
             $daemonRunning = $true
-            Write-Log "daemon 已启动 (等待 ${i}s)"
-            break
+            Write-Log "daemon 已在运行且可用 (PID: $($bskProcs[0].Id))，复用"
+        } else {
+            Write-Log "daemon 存在但 pipe 无响应，重启..." -Level Warn
+            Get-Process -Name "bsk" -ErrorAction SilentlyContinue |
+                ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+            cmd /c "taskkill /f /im bsk.exe 2>nul"
+            Start-Sleep -Seconds 2
         }
-        Write-Log "等待 daemon.json... ($([int]($i+1))/6)"
-        Start-Sleep -Seconds 1
     }
+
     if (-not $daemonRunning) {
-        Write-Log "daemon 启动失败，终止" -Level Error
-        cmd /c "taskkill /f /im bsk.exe 2>nul"
-        return
+        # 清理锁文件和旧 daemon 状态文件
+        if (Test-Path $lockFile) {
+            Remove-Item $lockFile -Force -ErrorAction SilentlyContinue
+        }
+        if (Test-Path $stateFile) {
+            Remove-Item $stateFile -Force -ErrorAction SilentlyContinue
+        }
+
+        # 启动 daemon
+        Invoke-BskWithTimeout -ArgsList @("daemon","start") -TimeoutMs 10000 -NoOutput | Out-Null
+        Start-Sleep -Seconds 2
+        for ($i = 0; $i -lt 6; $i++) {
+            if ((Test-Path $stateFile) -and ((Get-Item $stateFile).Length -gt 0)) {
+                $daemonRunning = $true
+                Write-Log "daemon 已启动 (等待 ${i}s)"
+                break
+            }
+            Write-Log "等待 daemon.json... ($([int]($i+1))/6)"
+            Start-Sleep -Seconds 1
+        }
+        if (-not $daemonRunning) {
+            Write-Log "daemon 启动失败，终止" -Level Error
+            cmd /c "taskkill /f /im bsk.exe 2>nul"
+            return
+        }
     }
 
     # 确保 Chrome 在运行
