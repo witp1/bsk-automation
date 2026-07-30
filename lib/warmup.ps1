@@ -379,88 +379,93 @@ function Invoke-WarmupPipeline {
                 Invoke-BskNavigate -SessionId $sid -Url $LoginUrl[$Env] -WaitSec 3
             }
 
-            # 登录（最多 2 次，首次失败则 Chrome 重启）
+            # 登录（三级降级：bsk fill → JS fill → 全栈重启）
             $loginOk = $false
-            for ($loginAttempt = 0; $loginAttempt -lt 2; $loginAttempt++) {
-                # snapshot → 找 input 和 button → bsk fill → bsk click
+            for ($loginAttempt = 0; $loginAttempt -lt 3; $loginAttempt++) {
                 $snap2 = Invoke-BskSnapshot -SessionId $sid
                 $userInp = Find-ElementByText -Elements $snap2 -Text "请输入用户名"
                 $passInp = Find-ElementByText -Elements $snap2 -Text "请输入密码"
                 $btn     = Find-ElementByText -Elements $snap2 -Text "登录" -Exact
-
                 if ($userInp.Count -eq 0 -or $passInp.Count -eq 0 -or $btn.Count -eq 0) {
                     Write-Log "未找到登录表单元素" -Level Error; break
                 }
 
-                Write-Log "填充凭据..."
-                Invoke-BskWithTimeout -ArgsList @("fill","--session",$sid,$userInp[0].Ref,$loginUser) -TimeoutMs 5000 | Out-Null
-                Invoke-BskWithTimeout -ArgsList @("fill","--session",$sid,$passInp[0].Ref,$loginPass) -TimeoutMs 5000 | Out-Null
+                # 填值策略：第 1 次用 bsk fill，后续用 JS evaluate（锁屏后 CDP 不生效）
+                if ($loginAttempt -eq 0) {
+                    Write-Log "填充凭据 (bsk fill)..."
+                    Invoke-BskWithTimeout -ArgsList @("fill","--session",$sid,$userInp[0].Ref,$loginUser) -TimeoutMs 5000 | Out-Null
+                    Invoke-BskWithTimeout -ArgsList @("fill","--session",$sid,$passInp[0].Ref,$loginPass) -TimeoutMs 5000 | Out-Null
+                } else {
+                    Write-Log "填充凭据 (JS evaluate)..."
+                    Invoke-BskEvaluate -SessionId $sid -Script @"
+(function(){var s=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;var u=document.querySelector('input[type=text],input:not([type=password])');var p=document.querySelector('input[type=password]');s.call(u,'$loginUser');u.dispatchEvent(new Event('input',{bubbles:true}));u.dispatchEvent(new Event('change',{bubbles:true}));s.call(p,'$loginPass');p.dispatchEvent(new Event('input',{bubbles:true}));p.dispatchEvent(new Event('change',{bubbles:true}));return'ok';})()
+"@ | Out-Null
+                }
 
-                # 验证填值是否生效（锁屏后 Chrome 渲染可能未恢复）
+                # 验证填值
                 $fillCheckU = Invoke-BskEvaluate -SessionId $sid -Script "(function(){var u=document.querySelector('input[type=text],input:not([type=password])');return u?u.value:'no-input';})()"
                 $fillCheckP = Invoke-BskEvaluate -SessionId $sid -Script "(function(){var p=document.querySelector('input[type=password]');return p?p.value:'no-input';})()"
-                Write-Log "[诊断] 填值验证: user='$fillCheckU' pass_len=$($fillCheckP.Length)"
-                if ($fillCheckU -eq "" -or $fillCheckU -eq "no-input" -or $fillCheckP.Length -eq 0) {
-                    Write-Log "填值未生效，Chrome 渲染异常" -Level Warn
-                    if ($loginAttempt -lt 1) {
-                        # Chrome 重启自救
-                        Write-Log "重启 Chrome..."
-                        Stop-BskSession -SessionId $sid -ErrorAction SilentlyContinue
-                        Get-Process chrome -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-                        Start-Sleep -Seconds 3
-                        Start-Process "chrome"
-                        for ($i = 0; $i -lt 10; $i++) { if (Get-Process chrome -ErrorAction SilentlyContinue) { break }; Start-Sleep -Seconds 1 }
-                        Start-Sleep -Seconds 8
-                        $sid = Start-BskSession -BrowserInstanceId $BrowserInstanceId
-                        if (-not $sid) { Write-Log "会话重启失败" -Level Error; break }
-                        Invoke-BskNavigate -SessionId $sid -Url $LoginUrl[$Env] -WaitSec 5
-                        continue
-                    }
-                    break
-                }
+                Write-Log "[诊断] 填值: user='$fillCheckU' pass_len=$($fillCheckP.Length)"
 
-                Write-Log "点击登录..."
-                Invoke-BskClick -SessionId $sid -Ref $btn[0].Ref -WaitSec 3
-
-                # 验证跳转
-                Write-Log "等待跳转..."
-                Start-Sleep -Seconds 5
-                $url = Invoke-BskEvaluate -SessionId $sid -Script "window.location.href"
-
-                if ($url -like "*portal-hmg*" -or $url -like "*sso*") {
-                    Write-Log "检测到 SSO 拦截，切回重试..." -Level Warn
-                    Invoke-BskNavigate -SessionId $sid -Url $LoginUrl[$Env] -WaitSec 3
-                    $snapR = Invoke-BskSnapshot -SessionId $sid
-                    $btnR = Find-ElementByText -Elements $snapR -Text "登录" -Exact
-                    $uR   = Find-ElementByText -Elements $snapR -Text "请输入用户名"
-                    $pR   = Find-ElementByText -Elements $snapR -Text "请输入密码"
-                    if ($uR.Count -gt 0) { Invoke-BskWithTimeout -ArgsList @("fill","--session",$sid,$uR[0].Ref,$loginUser) -TimeoutMs 5000 | Out-Null }
-                    if ($pR.Count -gt 0) { Invoke-BskWithTimeout -ArgsList @("fill","--session",$sid,$pR[0].Ref,$loginPass) -TimeoutMs 5000 | Out-Null }
-                    if ($btnR.Count -gt 0) { Invoke-BskClick -SessionId $sid -Ref $btnR[0].Ref -WaitSec 3 }
+                if ($fillCheckU -ne "" -and $fillCheckU -ne "no-input" -and $fillCheckP.Length -gt 0) {
+                    Write-Log "点击登录..."
+                    Invoke-BskClick -SessionId $sid -Ref $btn[0].Ref -WaitSec 3
                     Start-Sleep -Seconds 5
                     $url = Invoke-BskEvaluate -SessionId $sid -Script "window.location.href"
+
+                    if ($url -like "*portal-hmg*" -or $url -like "*sso*") {
+                        Write-Log "SSO 拦截，切回重试" -Level Warn
+                        Invoke-BskNavigate -SessionId $sid -Url $LoginUrl[$Env] -WaitSec 3
+                        $sr = Invoke-BskSnapshot -SessionId $sid
+                        $br = Find-ElementByText -Elements $sr -Text "登录" -Exact
+                        Invoke-BskEvaluate -SessionId $sid -Script @"
+(function(){var s=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;var u=document.querySelector('input[type=text],input:not([type=password])');s.call(u,'$loginUser');u.dispatchEvent(new Event('input',{bubbles:true}));var p=document.querySelector('input[type=password]');s.call(p,'$loginPass');p.dispatchEvent(new Event('input',{bubbles:true}));return'ok';})()
+"@ | Out-Null
+                        if ($br.Count -gt 0) { Invoke-BskClick -SessionId $sid -Ref $br[0].Ref -WaitSec 3 }
+                        Start-Sleep -Seconds 5
+                        $url = Invoke-BskEvaluate -SessionId $sid -Script "window.location.href"
+                    }
+
+                    if ($url -and $url -notlike "*/superLogin*" -and $url -notlike "*/login*") {
+                        Write-Log "登录成功" -Level Success
+                        $loginOk = $true
+                        break
+                    }
+                    Write-Log "登录失败: $url" -Level Error
+                } else {
+                    Write-Log "填值未生效" -Level Warn
                 }
 
-                if ($url -and $url -notlike "*/superLogin*" -and $url -notlike "*/login*") {
-                    Write-Log "登录成功" -Level Success
-                    $loginOk = $true
-                    break
-                }
-                Write-Log "登录失败, URL: $url" -Level Error
-                if ($loginAttempt -lt 1) {
-                    Write-Log "重启 Chrome 重试登录..."
-                    Stop-BskSession -SessionId $sid -ErrorAction SilentlyContinue
+                # 本次 attempt 失败 → 降级
+                Stop-BskSession -SessionId $sid -ErrorAction SilentlyContinue
+                if ($loginAttempt -eq 0) {
+                    Write-Log "降级：bsk fill 失败，尝试 JS fill..."
+                    Invoke-BskNavigate -SessionId $sid -Url $LoginUrl[$Env] -WaitSec 3
+                    $sid = Start-BskSession -BrowserInstanceId $BrowserInstanceId
+                    if (-not $sid) { Write-Log "会话重建失败" -Level Error; break }
+                    Invoke-BskNavigate -SessionId $sid -Url $LoginUrl[$Env] -WaitSec 5
+                } else {
+                    Write-Log "全栈重启：杀 daemon + Chrome..."
+                    Get-Process -Name "bsk" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+                    cmd /c "taskkill /f /im bsk.exe 2>nul"
                     Get-Process chrome -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-                    Start-Sleep -Seconds 3
+                    Start-Sleep -Seconds 5
                     Start-Process "chrome"
                     for ($i = 0; $i -lt 10; $i++) { if (Get-Process chrome -ErrorAction SilentlyContinue) { break }; Start-Sleep -Seconds 1 }
-                    Start-Sleep -Seconds 8
+                    Start-Sleep -Seconds 5
+                    # 重新走 daemon 启动流程
+                    Invoke-BskWithTimeout -ArgsList @("daemon","start") -TimeoutMs 10000 -NoOutput | Out-Null
+                    Start-Sleep -Seconds 2
+                    $df = "$env:USERPROFILE\.bsk\daemon.json"
+                    for ($i = 0; $i -lt 6; $i++) {
+                        if ((Test-Path $df) -and ((Get-Item $df).Length -gt 0)) { break }
+                        Start-Sleep -Seconds 1
+                    }
+                    Start-Sleep -Seconds 5
                     $sid = Start-BskSession -BrowserInstanceId $BrowserInstanceId
-                    if (-not $sid) { Write-Log "会话重启失败" -Level Error; break }
+                    if (-not $sid) { Write-Log "全栈重启后会话失败" -Level Error; break }
                     Invoke-BskNavigate -SessionId $sid -Url $LoginUrl[$Env] -WaitSec 5
-                    continue
                 }
-                break
             }
 
             if (-not $loginOk) {
