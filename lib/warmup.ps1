@@ -339,6 +339,8 @@ function Invoke-WarmupPipeline {
 
     # 启动 daemon（-NoOutput：daemon fork 子进程会继承管道导致 WaitForExit 死锁）
     Invoke-BskWithTimeout -ArgsList @("daemon","start") -TimeoutMs 10000 -NoOutput | Out-Null
+    # pipe 创建有微小窗口期，固定等 2s 再开始轮询
+    Start-Sleep -Seconds 2
     $daemonReady = $false
     for ($i = 0; $i -lt 6; $i++) {
         $check = Invoke-BskWithTimeout -ArgsList @("status") -TimeoutMs 3000

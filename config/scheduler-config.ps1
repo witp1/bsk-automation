@@ -4,7 +4,7 @@
 # ──── 预热定时任务 ────
 $SCRIPT:WarmupSchedule = @{
     Enabled      = $true          # $true / $false
-    Hour         = 17              # 首次触发小时（24 小时制）
+    Hour         = 09              # 首次触发小时（24 小时制）
     Minute       = 15             # 首次触发分钟
     ActiveEnd    = 20             # 重复截止小时（不含），如 8:30~20:00 则设 20
     RepeatEvery  = 0.25              # 重复间隔（小时，支持小数；0=不重复）
