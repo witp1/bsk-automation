@@ -629,7 +629,13 @@ window.__bskObserver.observe(document.body, {childList: true, subtree: true});
         Remove-Job -Name "bsk-watchdog" -ErrorAction SilentlyContinue
         Remove-Item $deadlockFile -Force -ErrorAction SilentlyContinue
     } finally {
-        # 退出登录：hover 右上角用户菜单 → click「退出」
+        # 无论成功、失败、手动中断——先杀 daemon
+        Stop-BskSession -SessionId $sid -ErrorAction SilentlyContinue
+        Get-Process -Name "bsk" -ErrorAction SilentlyContinue |
+            ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+        cmd /c "taskkill /f /im bsk.exe 2>nul"
+
+        # 退出登录（仅正常流程执行，中断时浏览器已死会走 catch）
         try {
             Write-Log "退出登录..."
             $logoutJs = @'
@@ -658,10 +664,6 @@ window.__bskObserver.observe(document.body, {childList: true, subtree: true});
             Write-Log "退出登录失败: $_" -Level Warn
         }
         Stop-BskSession -SessionId $sid
-        # 杀 daemon 进程，避免僵尸进程占用端口
-        Get-Process -Name "bsk" -ErrorAction SilentlyContinue |
-            ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
-        cmd /c "taskkill /f /im bsk.exe 2>nul"
         Write-Log "流程结束"
     }
 }
