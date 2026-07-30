@@ -624,11 +624,11 @@ window.__bskObserver.observe(document.body, {childList: true, subtree: true});
         Remove-Job -Name "bsk-watchdog" -ErrorAction SilentlyContinue
         Remove-Item $deadlockFile -Force -ErrorAction SilentlyContinue
     } finally {
-        # 无论成功、失败、手动中断——先杀 daemon
-        Stop-BskSession -SessionId $sid -ErrorAction SilentlyContinue
+        # 第一件事：杀 daemon（让后续 bsk 调用立刻失败，不挂起）
+        cmd /c "taskkill /f /im bsk.exe 2>nul"
         Get-Process -Name "bsk" -ErrorAction SilentlyContinue |
             ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
-        cmd /c "taskkill /f /im bsk.exe 2>nul"
+        Stop-BskSession -SessionId $sid -ErrorAction SilentlyContinue
 
         # 退出登录（仅正常流程执行，中断时浏览器已死会走 catch）
         try {
