@@ -15,7 +15,7 @@ $SCRIPT:LoginUrl   = @{
 
 # ──── 日志 ────
 $SCRIPT:LogDir = Join-Path (Join-Path $PSScriptRoot "..") "logs"
-$SCRIPT:Diagnostic = $false       # $true 启用详细诊断日志（填值验证、树扫描、AX dump）
+$SCRIPT:Diagnostic = $true       # $true 启用详细诊断日志（填值验证、树扫描、AX dump）
 
 # ──── bsk.exe 路径（优先项目目录，支持离线拷贝）────
 $ProjectDir = Split-Path -Parent $PSScriptRoot

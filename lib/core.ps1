@@ -30,7 +30,7 @@ function Invoke-BskWithTimeout {
     try {
         $proc.Start() | Out-Null
         $procId = $proc.Id
-        Write-Log "[bsk] 开始: bsk $cmdStr (PID: $procId, 超时: ${TimeoutMs}ms)" -Level Info
+        if ($Diagnostic) { Write-Log "[bsk] 开始: bsk $cmdStr (PID: $procId, 超时: ${TimeoutMs}ms)" -Level Info }
 
         $timedOut = -not $proc.WaitForExit($TimeoutMs)
         $sw.Stop()
@@ -44,7 +44,7 @@ function Invoke-BskWithTimeout {
             $stdout = $proc.StandardOutput.ReadToEnd()
             $stderr = $proc.StandardError.ReadToEnd()
         }
-        Write-Log "[bsk] 完成: bsk $cmdStr (PID: $procId, 耗时: $($sw.ElapsedMilliseconds)ms, 超时: $timedOut, 输出: $(($stdout.Length + $stderr.Length)) 字符)" -Level Info
+        if ($Diagnostic) { Write-Log "[bsk] 完成: bsk $cmdStr (PID: $procId, 耗时: $($sw.ElapsedMilliseconds)ms, 超时: $timedOut, 输出: $(($stdout.Length + $stderr.Length)) 字符)" -Level Info }
     } catch {
         $sw.Stop()
         Write-Log "[bsk] 异常: bsk $cmdStr ($_)" -Level Error
