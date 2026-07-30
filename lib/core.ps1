@@ -103,7 +103,7 @@ function Start-BskSession {
     Write-Log "启动 bsk 会话..."
 
     # 直接试 session start（跳过 bsk status，pipe 连接不可靠）
-    for ($w = 0; $w -lt 12; $w++) {
+    for ($w = 0; $w -lt 4; $w++) {
         $argsList = @("session", "start", "--json")
         if ($BrowserInstanceId) { $argsList += @("--browser", $BrowserInstanceId) }
         $sr = Invoke-BskWithTimeout -ArgsList $argsList -TimeoutMs 30000
@@ -118,7 +118,7 @@ function Start-BskSession {
                 }
             } catch {}
         }
-        Write-Log "等待 Chrome 扩展连接... ($([int]($w+1))/12)"
+        Write-Log "等待 Chrome 扩展连接... ($([int]($w+1))/4)"
         Start-Sleep -Seconds 2
     }
     Write-Log "会话启动失败，请确认 Chrome 已开启且扩展处于 connected 状态" -Level Error
