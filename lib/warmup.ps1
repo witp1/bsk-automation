@@ -312,8 +312,8 @@ function Invoke-WarmupPipeline {
             Remove-Item $stateFile -Force -ErrorAction SilentlyContinue
         }
 
-        # 启动 daemon
-        Invoke-BskWithTimeout -ArgsList @("daemon","start") -TimeoutMs 10000 -NoOutput | Out-Null
+        # 启动 daemon（Start-Process 脱离计划任务生命周期）
+        Start-Process -FilePath $BskPath -ArgumentList @("daemon","start") -WindowStyle Hidden
         Start-Sleep -Seconds 2
         for ($i = 0; $i -lt 6; $i++) {
             if ((Test-Path $stateFile) -and ((Get-Item $stateFile).Length -gt 0)) {
@@ -447,7 +447,7 @@ function Invoke-WarmupPipeline {
                     Start-Process "chrome"; Wait-ChromeReady
                     Start-Sleep -Seconds 5
                     # 重新走 daemon 启动流程
-                    Invoke-BskWithTimeout -ArgsList @("daemon","start") -TimeoutMs 10000 -NoOutput | Out-Null
+                    Start-Process -FilePath $BskPath -ArgumentList @("daemon","start") -WindowStyle Hidden
                     Start-Sleep -Seconds 2
                     $df = "$env:USERPROFILE\.bsk\daemon.json"
                     for ($i = 0; $i -lt 6; $i++) {
