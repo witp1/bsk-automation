@@ -102,52 +102,26 @@ function Start-BskSession {
 
     Write-Log "启动 bsk 会话..."
 
-    # 等待浏览器连上 daemon（每 3s 轮询，最多 60s）
-    $maxWait = 20
-    $browserReady = $false
-    for ($w = 0; $w -lt $maxWait; $w++) {
-        $sr = Invoke-BskWithTimeout -ArgsList @("status") -TimeoutMs 5000
-        if (-not $sr.TimedOut -and $sr.Output -match 'browsers connected\s+(\d+)' -and [int]$matches[1] -ge 1) {
-            $browserReady = $true
-            Write-Log "浏览器已连接 (等待 ${w}s)"
-            break
+    # 直接试 session start（跳过 bsk status，pipe 连接不可靠）
+    for ($w = 0; $w -lt 8; $w++) {
+        $argsList = @("session", "start", "--json")
+        if ($BrowserInstanceId) { $argsList += @("--browser", $BrowserInstanceId) }
+        $sr = Invoke-BskWithTimeout -ArgsList $argsList -TimeoutMs 30000
+        if (-not $sr.TimedOut -and $sr.Output) {
+            try {
+                $parsed = $sr.Output | ConvertFrom-Json
+                $sid = $parsed.session_id
+                if ($sid) {
+                    Write-Log "会话启动成功, ID: $sid (等待 ${w}s)" -Level Success
+                    return $sid
+                }
+            } catch {}
         }
-        Start-Sleep -Seconds 3
+        Write-Log "等待 Chrome 扩展连接... ($([int]($w+1))/8)"
+        Start-Sleep -Seconds 5
     }
-    if (-not $browserReady) {
-        Write-Log "等待浏览器连接超时（${maxWait}s），请确认 Chrome 已开启且扩展处于 connected 状态" -Level Error
-        return ""
-    }
-
-    $argsList = @("session", "start", "--json")
-    if ($BrowserInstanceId) {
-        $argsList += @("--browser", $BrowserInstanceId)
-    }
-    $sr = Invoke-BskWithTimeout -ArgsList $argsList -TimeoutMs 30000
-    if ($sr.TimedOut) {
-        Write-Log "bsk 会话启动超时（30s）" -Level Error
-        return ""
-    }
-    $output = $sr.Output
-
-    # 用 JSON 解析判断成功（.NET Process 不设 $LASTEXITCODE）
-    if (-not $output) {
-        Write-Log "bsk 会话启动失败: 无输出" -Level Error
-        return ""
-    }
-    try {
-        $parsed = $output | ConvertFrom-Json
-        $sid = $parsed.session_id
-        if (-not $sid) {
-            Write-Log "bsk 会话返回异常: $output" -Level Error
-            return ""
-        }
-        Write-Log "会话启动成功, ID: $sid" -Level Success
-        return $sid
-    } catch {
-        Write-Log "bsk 会话启动失败: $output" -Level Error
-        return ""
-    }
+    Write-Log "会话启动失败，请确认 Chrome 已开启且扩展处于 connected 状态" -Level Error
+    return ""
 }
 
 function Stop-BskSession {
