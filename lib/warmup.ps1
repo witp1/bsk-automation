@@ -397,9 +397,11 @@ function Invoke-WarmupPipeline {
                 Invoke-BskWithTimeout -ArgsList @("fill","--session",$sid,$passInp[0].Ref,$loginPass) -TimeoutMs 5000 | Out-Null
 
                 # 验证填值是否生效（锁屏后 Chrome 渲染可能未恢复）
-                $fillCheck = Invoke-BskEvaluate -SessionId $sid -Script "(function(){var u=document.querySelector('input[type=text],input:not([type=password])');return u?u.value:'no-input';})()"
-                if ($fillCheck -eq "" -or $fillCheck -eq "no-input") {
-                    Write-Log "填值未生效 (DOM 值: $fillCheck)，Chrome 渲染异常" -Level Warn
+                $fillCheckU = Invoke-BskEvaluate -SessionId $sid -Script "(function(){var u=document.querySelector('input[type=text],input:not([type=password])');return u?u.value:'no-input';})()"
+                $fillCheckP = Invoke-BskEvaluate -SessionId $sid -Script "(function(){var p=document.querySelector('input[type=password]');return p?p.value:'no-input';})()"
+                Write-Log "[诊断] 填值验证: user='$fillCheckU' pass_len=$($fillCheckP.Length)"
+                if ($fillCheckU -eq "" -or $fillCheckU -eq "no-input" -or $fillCheckP.Length -eq 0) {
+                    Write-Log "填值未生效，Chrome 渲染异常" -Level Warn
                     if ($loginAttempt -lt 1) {
                         # Chrome 重启自救
                         Write-Log "重启 Chrome..."
