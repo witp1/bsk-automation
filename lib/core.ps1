@@ -108,6 +108,7 @@ function Start-BskSession {
         if ($BrowserInstanceId) { $argsList += @("--browser", $BrowserInstanceId) }
         $sr = Invoke-BskWithTimeout -ArgsList $argsList -TimeoutMs 30000
         if (-not $sr.TimedOut -and $sr.Output) {
+            Write-Log "[诊断] session start 返回: $($sr.Output)"
             try {
                 $parsed = $sr.Output | ConvertFrom-Json
                 $sid = $parsed.session_id
