@@ -326,7 +326,7 @@ function Invoke-WarmupPipeline {
         }
         if (-not $daemonRunning) {
             Write-Log "daemon 启动失败，终止" -Level Error
-            cmd /c "taskkill /f /im bsk.exe 2>nul"
+            Kill-BskProcesses
             return
         }
     }
