@@ -323,23 +323,55 @@ function Invoke-WarmupPipeline {
     if ($ReportFilter) { Write-Log "过滤: $ReportFilter" }
 
     # ──── 0. 确保 daemon 在运行 ────
-    Write-Log "清理残留 daemon 并重启..."
+    Write-Log "检查 daemon 状态..."
 
-    # 杀掉所有残留 bsk 进程（cmd taskkill 兜底，确保 daemon 子进程也杀掉）
-    Get-Process -Name "bsk" -ErrorAction SilentlyContinue |
-        ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
-    cmd /c "taskkill /f /im bsk.exe 2>nul"
-    Write-Log "[诊断] 已杀残留 bsk 进程"
-
-    # 清理锁文件和旧 daemon 状态文件（避免新 daemon 读到旧 socket path）
     $lockFile = "$env:USERPROFILE\.bsk\daemon.lock"
     $stateFile = "$env:USERPROFILE\.bsk\daemon.json"
-    if (Test-Path $lockFile) {
-        Remove-Item $lockFile -Force -ErrorAction SilentlyContinue
-        Write-Log "[诊断] 已清理残留锁文件"
-    }
+    $daemonRunning = $false
+
+    # 检查已有 daemon 是否活着（避免杀 daemon 导致扩展断连）
     if (Test-Path $stateFile) {
-        Remove-Item $stateFile -Force -ErrorAction SilentlyContinue
+        try {
+            $daemonPid = (Get-Content $stateFile -Raw | ConvertFrom-Json).pid
+            if (Get-Process -Id $daemonPid -ErrorAction SilentlyContinue) {
+                $daemonRunning = $true
+                Write-Log "daemon 已在运行 (PID: $daemonPid)，复用"
+            }
+        } catch {}
+    }
+
+    if (-not $daemonRunning) {
+        # 杀掉所有残留 bsk 进程（仅在 daemon 不可用时才清理）
+        Get-Process -Name "bsk" -ErrorAction SilentlyContinue |
+            ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+        cmd /c "taskkill /f /im bsk.exe 2>nul"
+        Write-Log "[诊断] 已杀残留 bsk 进程"
+
+        # 清理残留文件
+        if (Test-Path $lockFile) {
+            Remove-Item $lockFile -Force -ErrorAction SilentlyContinue
+        }
+        if (Test-Path $stateFile) {
+            Remove-Item $stateFile -Force -ErrorAction SilentlyContinue
+        }
+
+        # 启动 daemon（-NoOutput：daemon fork 子进程会继承管道导致 WaitForExit 死锁）
+        Invoke-BskWithTimeout -ArgsList @("daemon","start") -TimeoutMs 10000 -NoOutput | Out-Null
+        Start-Sleep -Seconds 2
+        for ($i = 0; $i -lt 6; $i++) {
+            if ((Test-Path $stateFile) -and ((Get-Item $stateFile).Length -gt 0)) {
+                $daemonRunning = $true
+                Write-Log "daemon 已启动 (等待 ${i}s)"
+                break
+            }
+            Write-Log "等待 daemon.json... ($([int]($i+1))/6)"
+            Start-Sleep -Seconds 1
+        }
+        if (-not $daemonRunning) {
+            Write-Log "daemon 启动失败，终止" -Level Error
+            cmd /c "taskkill /f /im bsk.exe 2>nul"
+            return
+        }
     }
 
     # 确保 Chrome 在运行
@@ -355,30 +387,6 @@ function Invoke-WarmupPipeline {
         } catch {
             Write-Log "无法启动 Chrome: $_" -Level Error
         }
-    }
-
-    # 启动 daemon（-NoOutput：daemon fork 子进程会继承管道导致 WaitForExit 死锁）
-    Invoke-BskWithTimeout -ArgsList @("daemon","start") -TimeoutMs 10000 -NoOutput | Out-Null
-    # 等 daemon 写入 daemon.json（不再依赖 bsk status，pipe 连接有间歇性故障）
-    Start-Sleep -Seconds 2
-    $stateFile = "$env:USERPROFILE\.bsk\daemon.json"
-    $daemonReady = $false
-    for ($i = 0; $i -lt 6; $i++) {
-        if ((Test-Path $stateFile) -and ((Get-Item $stateFile).Length -gt 0)) {
-            $daemonReady = $true
-            Write-Log "daemon 已启动 (等待 ${i}s)"
-            break
-        }
-        Write-Log "等待 daemon.json... ($([int]($i+1))/6)"
-        Start-Sleep -Seconds 1
-    }
-    if (-not $daemonReady) {
-        Write-Log "daemon 启动失���，清理残留并终止" -Level Error
-        Get-Process -Name "bsk" -ErrorAction SilentlyContinue |
-            ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
-        # cmd 兜底：杀干净所有 bsk 进程
-        cmd /c "taskkill /f /im bsk.exe 2>nul"
-        return
     }
 
     # ──── 1. 启动会话 ────
