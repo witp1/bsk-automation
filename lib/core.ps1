@@ -103,19 +103,16 @@ function Start-BskSession {
     Write-Log "启动 bsk 会话..."
 
     # 第一轮：直接尝试（扩展可能已连接）
-    for ($w = 0; $w -lt 1; $w++) {
-        $sr = Invoke-BskWithTimeout -ArgsList @("session","start","--json") -TimeoutMs 30000
-        if (-not $sr.TimedOut -and $sr.Output) {
-            try {
-                $parsed = $sr.Output | ConvertFrom-Json
-                $sid = $parsed.session_id
-                if ($sid) {
-                    Write-Log "session start 成功, ID: $sid" -Level Success
-                    return $sid
-                }
-            } catch {}
-        }
-        Start-Sleep -Seconds 2
+    $sr = Invoke-BskWithTimeout -ArgsList @("session","start","--json") -TimeoutMs 30000
+    if (-not $sr.TimedOut -and $sr.Output) {
+        try {
+            $parsed = $sr.Output | ConvertFrom-Json
+            $sid = $parsed.session_id
+            if ($sid) {
+                Write-Log "session start 成功, ID: $sid" -Level Success
+                return $sid
+            }
+        } catch {}
     }
 
     # 第一轮失败 → 重启 Chrome 强制扩展重连
@@ -123,11 +120,7 @@ function Start-BskSession {
     Get-Process -Name "chrome" -ErrorAction SilentlyContinue |
         ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
     Start-Sleep -Seconds 3
-    Start-Process "chrome"
-    for ($i = 0; $i -lt 10; $i++) {
-        if (Get-Process chrome -ErrorAction SilentlyContinue) { break }
-        Start-Sleep -Seconds 1
-    }
+    Start-Process "chrome"; Wait-ChromeReady
     Write-Log "Chrome 已重启，等待扩展..."
     Start-Sleep -Seconds 8
 
@@ -369,6 +362,19 @@ function Find-ElementByText {
         return $Elements | Where-Object { $_.Text -eq $Text }
     } else {
         return $Elements | Where-Object { $_.Text -like "*$Text*" }
+    }
+}
+
+function Kill-BskProcesses {
+    Get-Process -Name "bsk" -ErrorAction SilentlyContinue |
+        ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+    cmd /c "taskkill /f /im bsk.exe 2>nul"
+}
+
+function Wait-ChromeReady {
+    for ($i = 0; $i -lt 10; $i++) {
+        if (Get-Process chrome -ErrorAction SilentlyContinue) { break }
+        Start-Sleep -Seconds 1
     }
 }
 

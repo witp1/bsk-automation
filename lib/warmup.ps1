@@ -23,11 +23,11 @@ function Get-ReportTree {
     #>
     param([Parameter(Mandatory)][string]$SessionId)
 
-    Write-Log "[树扫描] 开始..."
+    if ($Diagnostic) { Write-Log "[树扫描] 开始..." }
 
     # ──── 1. 展开所有分类节点 ────
     # 分类节点是 el-tree-node，点击 el-tree-node__expand-icon 展开
-    Write-Log "[树扫描] 展开所有分类..."
+    if ($Diagnostic) { Write-Log "[树扫描] 展开所有分类..." }
     $expandJs = @'
 (function() {
     var icons = document.querySelectorAll('.el-tree-node__expand-icon');
@@ -44,13 +44,13 @@ function Get-ReportTree {
     # 多轮展开确保所有层级展开
     for ($round = 1; $round -le 4; $round++) {
         $result = Invoke-BskEvaluate -SessionId $SessionId -Script $expandJs
-        Write-Log "[树扫描] 第${round}轮展开: $result"
+        if ($Diagnostic) { Write-Log "[树扫描] 第${round}轮展开: $result" }
         Start-Sleep -Seconds 1
     }
 
     # ──── 2. snapshot 抓取完整树 ────
     $treeSnap = Invoke-BskSnapshot -SessionId $SessionId
-    Write-Log "[树扫描] snapshot 共 $($treeSnap.Count) 个元素"
+    if ($Diagnostic) { Write-Log "[树扫描] snapshot 共 $($treeSnap.Count) 个元素" }
 
     # ──── 3. 解析树结构 ────
     # 遍历所有 treeitem，按 depth 判断层级
@@ -85,7 +85,7 @@ function Get-ReportTree {
         if ($depth -eq 2) {
             # depth=2: 分类节点
             $currentCategory = $name
-            Write-Log "[树扫描]   分类: $name"
+            if ($Diagnostic) { Write-Log "[树扫描]   分类: $name" }
         } elseif ($depth -ge 3) {
             # depth>=3: 报表节点（属于当前分类）
             if (-not $currentCategory) { continue }
@@ -94,7 +94,7 @@ function Get-ReportTree {
                 ReportName = $name
                 Ref        = $ref
             }
-            Write-Log "[树扫描]     报表: $currentCategory / $name [$ref]"
+            if ($Diagnostic) { Write-Log "[树扫描]     报表: $currentCategory / $name [$ref]" }
         }
     }
 
@@ -109,7 +109,7 @@ function Get-ReportTree {
         }
     }
 
-    Write-Log "[树扫描] 解析完成: $($unique.Count) 个唯一报表"
+    if ($Diagnostic) { Write-Log "[树扫描] 解析完成: $($unique.Count) 个唯一报表" }
     return $unique
 }
 
@@ -294,11 +294,11 @@ function Invoke-WarmupPipeline {
         if (-not $testSid.TimedOut -and $testSid.Output -and $testSid.Output -notmatch '"exit_code":\s*2') {
             $daemonRunning = $true
             Write-Log "daemon 已在运行且可用 (PID: $($bskProcs[0].Id))，复用"
+            # 关掉健康检查创建的测试 session
+            try { $testParsed = $testSid.Output | ConvertFrom-Json; $tsid = $testParsed.session_id; if ($tsid) { Stop-BskSession -SessionId $tsid } } catch {}
         } else {
             Write-Log "daemon 存在但 pipe 无响应，重启..." -Level Warn
-            Get-Process -Name "bsk" -ErrorAction SilentlyContinue |
-                ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
-            cmd /c "taskkill /f /im bsk.exe 2>nul"
+            Kill-BskProcesses
             Start-Sleep -Seconds 2
         }
     }
@@ -335,11 +335,7 @@ function Invoke-WarmupPipeline {
     if (-not (Get-Process chrome -ErrorAction SilentlyContinue)) {
         Write-Log "Chrome 未运行，自动启动..."
         try {
-            Start-Process "chrome"
-            for ($i = 0; $i -lt 10; $i++) {
-                if (Get-Process chrome -ErrorAction SilentlyContinue) { break }
-                Start-Sleep -Seconds 1
-            }
+            Start-Process "chrome"; Wait-ChromeReady
             Write-Log "Chrome 已启动"
         } catch {
             Write-Log "无法启动 Chrome: $_" -Level Error
@@ -405,7 +401,7 @@ function Invoke-WarmupPipeline {
                 # 验证填值
                 $fillCheckU = Invoke-BskEvaluate -SessionId $sid -Script "(function(){var u=document.querySelector('input[type=text],input:not([type=password])');return u?u.value:'no-input';})()"
                 $fillCheckP = Invoke-BskEvaluate -SessionId $sid -Script "(function(){var p=document.querySelector('input[type=password]');return p?p.value:'no-input';})()"
-                Write-Log "[诊断] 填值: user='$fillCheckU' pass_ok=$($fillCheckP.Length -gt 0)"
+                if ($Diagnostic) { Write-Log "[诊断] 填值: user='$fillCheckU' pass_ok=$($fillCheckP.Length -gt 0)" }
 
                 if ($fillCheckU -ne "" -and $fillCheckU -ne "no-input" -and $fillCheckP.Length -gt 0) {
                     Write-Log "点击登录..."
@@ -445,12 +441,10 @@ function Invoke-WarmupPipeline {
                     Invoke-BskNavigate -SessionId $sid -Url $LoginUrl[$Env] -WaitSec 5
                 } elseif ($loginAttempt -eq 1) {
                     Write-Log "全栈重启：杀 daemon + Chrome..."
-                    Get-Process -Name "bsk" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-                    cmd /c "taskkill /f /im bsk.exe 2>nul"
+                    Kill-BskProcesses
                     Get-Process chrome -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
                     Start-Sleep -Seconds 5
-                    Start-Process "chrome"
-                    for ($i = 0; $i -lt 10; $i++) { if (Get-Process chrome -ErrorAction SilentlyContinue) { break }; Start-Sleep -Seconds 1 }
+                    Start-Process "chrome"; Wait-ChromeReady
                     Start-Sleep -Seconds 5
                     # 重新走 daemon 启动流程
                     Invoke-BskWithTimeout -ArgsList @("daemon","start") -TimeoutMs 10000 -NoOutput | Out-Null
@@ -468,9 +462,11 @@ function Invoke-WarmupPipeline {
             }
 
             if (-not $loginOk) {
-                $diagSnap = Invoke-BskSnapshot -SessionId $sid -RawText
-                Write-Log "[诊断] 登录失败时页面内容:"
-                $diagSnap -split "`n" | ForEach-Object { Write-Log "[诊断]   $_" }
+                if ($Diagnostic) {
+                    $diagSnap = Invoke-BskSnapshot -SessionId $sid -RawText
+                    Write-Log "[诊断] 登录失败时页面内容:"
+                    $diagSnap -split "`n" | ForEach-Object { Write-Log "[诊断]   $_" }
+                }
                 return
             }
         }
@@ -623,16 +619,10 @@ window.__bskObserver.observe(document.body, {childList: true, subtree: true});
         Remove-Job -Name "bsk-watchdog" -ErrorAction SilentlyContinue
         Remove-Item $deadlockFile -Force -ErrorAction SilentlyContinue
     } finally {
-        # 第一件事：杀 daemon（让后续 bsk 调用立刻失败，不挂起）
-        cmd /c "taskkill /f /im bsk.exe 2>nul"
-        Get-Process -Name "bsk" -ErrorAction SilentlyContinue |
-            ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
-        Stop-BskSession -SessionId $sid -ErrorAction SilentlyContinue
-
-        # 退出登录（仅正常流程执行，中断时浏览器已死会走 catch）
+        # 退出登录
         try {
             Write-Log "退出登录..."
-            $logoutJs = @'
+            Invoke-BskEvaluate -SessionId $sid -Script @'
 (function() {
     var btn = document.querySelector('header button, .v-toolbar button, .v-app-bar button');
     if (!btn) return 'no-button';
@@ -649,8 +639,7 @@ window.__bskObserver.observe(document.body, {childList: true, subtree: true});
     }, 200);
     return 'sent';
 })();
-'@
-            Invoke-BskEvaluate -SessionId $sid -Script $logoutJs | Out-Null
+'@ | Out-Null
             Start-Sleep -Seconds 3
             $url = Invoke-BskEvaluate -SessionId $sid -Script "window.location.href"
             if ($url -match "login") { Write-Log "已退出登录" } else { Write-Log "退出登录完成" }
